@@ -1,0 +1,28 @@
+{
+  "name": "test_cold",
+  "states": {
+    "Initial": {
+      "type": "Initial",
+      "distributed_transition": [
+        {"distribution": 0.3, "transition": "Cold_Onset"},
+        {"distribution": 0.7, "transition": "Terminal"}
+      ]
+    },
+    "Cold_Onset": {
+      "type": "ConditionOnset",
+      "codes": [{"system": "SNOMED-CT", "code": "82272006", "display": "Common cold"}],
+      "direct_transition": "Cold_Duration"
+    },
+    "Cold_Duration": {
+      "type": "Delay",
+      "range": {"low": 7, "high": 14, "unit": "days"},
+      "direct_transition": "Cold_Resolves"
+    },
+    "Cold_Resolves": {
+      "type": "ConditionEnd",
+      "condition_onset": "Cold_Onset",
+      "direct_transition": "Terminal"
+    },
+    "Terminal": {"type": "Terminal"}
+  }
+}
