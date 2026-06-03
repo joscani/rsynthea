@@ -121,25 +121,13 @@ method(process_state, GMFState) <- function(state, person, time) {
   list(person = person, next_state = NULL)
 }
 
-# Stubs for clinical states — implemented in R/state_clinical.R
-.state_encounter         <- function(state, person, time) .next(state, person, time)
-.state_encounter_end     <- function(state, person, time) .next(state, person, time)
-.state_condition_onset   <- function(state, person, time) .next(state, person, time)
-.state_condition_end     <- function(state, person, time) .next(state, person, time)
-.state_medication_order  <- function(state, person, time) .next(state, person, time)
-.state_medication_end    <- function(state, person, time) .next(state, person, time)
-.state_careplan_start    <- function(state, person, time) .next(state, person, time)
-.state_careplan_end      <- function(state, person, time) .next(state, person, time)
-.state_allergy_onset     <- function(state, person, time) .next(state, person, time)
-.state_allergy_end       <- function(state, person, time) .next(state, person, time)
-.state_procedure         <- function(state, person, time) .next(state, person, time)
+# Stubs for unimplemented states — clinical states implemented in R/state_clinical.R
 .state_observation       <- function(state, person, time) .next(state, person, time)
 .state_multi_observation <- function(state, person, time) .next(state, person, time)
 .state_diagnostic_report <- function(state, person, time) .next(state, person, time)
 .state_vital_sign        <- function(state, person, time) .next(state, person, time)
 .state_symptom           <- function(state, person, time) .next(state, person, time)
 .state_call_submodule    <- function(state, person, time) .next(state, person, time)
-.state_vaccine           <- function(state, person, time) .next(state, person, time)
 .state_imaging_study     <- function(state, person, time) .next(state, person, time)
 .state_device            <- function(state, person, time) .next(state, person, time)
 .state_device_end        <- function(state, person, time) .next(state, person, time)
