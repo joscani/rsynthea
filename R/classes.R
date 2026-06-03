@@ -156,6 +156,7 @@ Person <- new_class("Person",
     seed <- if (is.null(seed)) sample.int(.Machine$integer.max, 1L) else as.integer(seed)
     id   <- substr(digest::digest(seed, algo = "md5"), 1L, 16L)
     rec  <- new.env(parent = emptyenv())
+    rec$.patient_id   <- id   # used by .new_id() to prefix record IDs
     rec$encounters    <- list()
     rec$conditions    <- list()
     rec$medications   <- list()

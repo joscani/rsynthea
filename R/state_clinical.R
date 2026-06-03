@@ -23,7 +23,7 @@
 
 .new_id <- function() {
   .id_counter$n <- .id_counter$n + 1L
-  paste0(.id_counter$n, "-", sample.int(.Machine$integer.max, 1L))
+  paste0(.REC$e$.patient_id %||% "0", "-", .id_counter$n)
 }
 
 .new_item_env <- function(...) {
