@@ -169,3 +169,159 @@ test_that("AllergyOnset adds an allergy to health record", {
   expect_equal(length(r$person@health_record@allergies), 1L)
   expect_true(r$person@health_record@allergies[[1]]@is_active)
 })
+
+test_that("AllergyEnd deactivates active allergies", {
+  p <- make_person_clinical()
+  allergy <- AllergyIntolerance(
+    id = "a1",
+    time = as.POSIXct("2020-01-01"),
+    codes = list(Code(system = "RxNorm", code = "7980", display = "Penicillin")),
+    is_active = TRUE
+  )
+  p@health_record@allergies <- list(allergy)
+
+  s <- GMFState(
+    name = "PenicillinAllergyEnd", type = "AllergyEnd",
+    definition = list(type = "AllergyEnd", direct_transition = "Next"),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, p, as.POSIXct("2025-01-01"))
+  expect_false(r$person@health_record@allergies[[1]]@is_active)
+  expect_false(is.null(r$person@health_record@allergies[[1]]@end_time))
+})
+
+# --- CarePlan ---
+
+test_that("CarePlanStart adds active care plan", {
+  s <- GMFState(
+    name = "DiabetesCare", type = "CarePlanStart",
+    definition = list(
+      type = "CarePlanStart",
+      codes = list(list(system = "SNOMED-CT", code = "408290009", display = "Diabetes care")),
+      activities = list(list(system = "SNOMED-CT", code = "310627008", display = "Physical activity")),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), as.POSIXct("2020-01-01"))
+  expect_equal(length(r$person@health_record@careplans), 1L)
+  expect_true(r$person@health_record@careplans[[1]]@is_active)
+  expect_equal(length(r$person@health_record@careplans[[1]]@activities), 1L)
+})
+
+test_that("CarePlanEnd deactivates the matching care plan", {
+  p <- make_person_clinical()
+  cp <- CarePlan(
+    id = "cp1",
+    time = as.POSIXct("2020-01-01"),
+    codes = list(Code(system = "SNOMED-CT", code = "408290009", display = "Diabetes care")),
+    activities = list(),
+    is_active = TRUE
+  )
+  p@health_record@careplans <- list(cp)
+  p@attributes[["__careplan_ref__DiabetesCare"]] <- "cp1"
+
+  s <- GMFState(
+    name = "DiabetesCareEnd", type = "CarePlanEnd",
+    definition = list(type = "CarePlanEnd", careplan = "DiabetesCare", direct_transition = "Next"),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, p, as.POSIXct("2022-01-01"))
+  expect_false(r$person@health_record@careplans[[1]]@is_active)
+  expect_false(is.null(r$person@health_record@careplans[[1]]@end_time))
+})
+
+# --- Observation ---
+
+test_that("Observation adds observation with numeric value from range", {
+  s <- GMFState(
+    name = "RecordA1c", type = "Observation",
+    definition = list(
+      type = "Observation",
+      category = "laboratory",
+      unit = "%",
+      codes = list(list(system = "LOINC", code = "4548-4", display = "HbA1c")),
+      range = list(low = 6.5, high = 8.0),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  r <- process_state(s, p, as.POSIXct("2020-01-15"))
+  obs <- r$person@health_record@observations
+  expect_equal(length(obs), 1L)
+  expect_gte(as.numeric(obs[[1]]@value), 6.5)
+  expect_lte(as.numeric(obs[[1]]@value), 8.0)
+  expect_equal(obs[[1]]@unit, "%")
+})
+
+test_that("Observation with exact value", {
+  s <- GMFState(
+    name = "RecordWeight", type = "Observation",
+    definition = list(
+      type = "Observation",
+      unit = "kg",
+      codes = list(list(system = "LOINC", code = "29463-7", display = "Body weight")),
+      exact = list(quantity = 75),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  expect_equal(as.numeric(r$person@health_record@observations[[1]]@value), 75)
+})
+
+# --- VitalSign ---
+
+test_that("VitalSign updates vital_signs on person", {
+  s <- GMFState(
+    name = "RecordBP", type = "VitalSign",
+    definition = list(
+      type = "VitalSign",
+      vital_sign = "Systolic Blood Pressure",
+      unit = "mmHg",
+      exact = list(quantity = 120),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  expect_equal(r$person@vital_signs[["Systolic Blood Pressure"]][["value"]], 120)
+  expect_equal(r$person@vital_signs[["Systolic Blood Pressure"]][["unit"]], "mmHg")
+})
+
+# --- Symptom ---
+
+test_that("Symptom updates symptom map on person (clamped to 0-100)", {
+  s <- GMFState(
+    name = "SetPain", type = "Symptom",
+    definition = list(
+      type = "Symptom",
+      symptom = "Pain",
+      cause = "Cold",
+      exact = list(quantity = 30),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  expect_equal(r$person@symptoms[["Pain"]][["value"]], 30)
+  expect_equal(r$person@symptoms[["Pain"]][["cause"]], "Cold")
+})
+
+# --- ImagingStudy ---
+
+test_that("ImagingStudy adds to health_record@imaging", {
+  s <- GMFState(
+    name = "ChestXray", type = "ImagingStudy",
+    definition = list(
+      type = "ImagingStudy",
+      codes = list(list(system = "SNOMED-CT", code = "399208008", display = "Chest X-ray")),
+      series = list(),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  expect_equal(length(r$person@health_record@imaging), 1L)
+})

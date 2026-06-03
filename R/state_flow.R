@@ -121,14 +121,3 @@ method(process_state, GMFState) <- function(state, person, time) {
   list(person = person, next_state = NULL)
 }
 
-# Stubs for unimplemented states — clinical states implemented in R/state_clinical.R
-.state_observation       <- function(state, person, time) .next(state, person, time)
-.state_multi_observation <- function(state, person, time) .next(state, person, time)
-.state_diagnostic_report <- function(state, person, time) .next(state, person, time)
-.state_vital_sign        <- function(state, person, time) .next(state, person, time)
-.state_symptom           <- function(state, person, time) .next(state, person, time)
-.state_call_submodule    <- function(state, person, time) .next(state, person, time)
-.state_imaging_study     <- function(state, person, time) .next(state, person, time)
-.state_device            <- function(state, person, time) .next(state, person, time)
-.state_device_end        <- function(state, person, time) .next(state, person, time)
-.state_supply_list       <- function(state, person, time) .next(state, person, time)
