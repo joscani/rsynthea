@@ -138,7 +138,7 @@ Device <- new_class("rsynthea_Device",
   )
 )
 
-HealthRecord <- new_class("rsynthea_HealthRecord",
+HealthRecord <- new_class("HealthRecord",
   package    = NULL,
   properties = list(
     encounters    = new_property(class = class_list, default = list()),
@@ -155,3 +155,49 @@ HealthRecord <- new_class("rsynthea_HealthRecord",
     supplies      = new_property(class = class_list, default = list())
   )
 )
+
+# --- Person ---
+
+Person <- new_class("Person",
+  package    = NULL,
+  properties = list(
+    seed           = class_integer,
+    id             = class_character,
+    is_alive       = new_property(class = class_logical, default = TRUE),
+    attributes     = new_property(class = class_list, default = list()),
+    vital_signs    = new_property(class = class_list, default = list()),
+    symptoms       = new_property(class = class_list, default = list()),
+    module_history = new_property(class = class_list, default = list()),
+    health_record  = new_property(class = class_any, default = NULL)
+  ),
+  constructor = function(seed = NULL) {
+    seed <- if (is.null(seed)) sample.int(.Machine$integer.max, 1L) else as.integer(seed)
+    id   <- substr(digest::digest(seed, algo = "md5"), 1L, 16L)
+    new_object(S7_object(),
+      seed           = seed,
+      id             = id,
+      is_alive       = TRUE,
+      attributes     = list(),
+      vital_signs    = list(),
+      symptoms       = list(),
+      module_history = list(),
+      health_record  = HealthRecord()
+    )
+  }
+)
+
+# Generic: age_at(person, time) -> numeric years
+age_at <- new_generic("age_at", "x")
+method(age_at, Person) <- function(x, time) {
+  birth <- x@attributes[["birth_date"]]
+  if (is.null(birth)) return(0)
+  birth_d <- as.Date(format(birth, "%Y-%m-%d"))
+  time_d  <- as.Date(format(time,  "%Y-%m-%d"))
+  years <- as.integer(format(time_d,  "%Y")) - as.integer(format(birth_d, "%Y"))
+  # Subtract 1 if anniversary hasn't occurred yet this year
+  had_birthday <- (as.integer(format(time_d, "%m")) > as.integer(format(birth_d, "%m"))) ||
+    (as.integer(format(time_d, "%m")) == as.integer(format(birth_d, "%m")) &&
+     as.integer(format(time_d, "%d")) >= as.integer(format(birth_d, "%d")))
+  if (!had_birthday) years <- years - 1L
+  as.numeric(years)
+}
