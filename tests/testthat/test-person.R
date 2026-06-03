@@ -1,12 +1,13 @@
 # tests/testthat/test-person.R
 library(testthat)
 
-test_that("Person initializes with seed and a HealthRecord", {
+test_that("Person starts with .record environment", {
   p <- Person(seed = 42L)
   expect_equal(p@seed, 42L)
   expect_true(is.character(p@id) && nchar(p@id) > 0)
   expect_equal(length(p@attributes), 0L)
-  expect_true(inherits(p@health_record, "HealthRecord"))
+  expect_true(is.environment(p@.record))
+  expect_equal(length(p@.record$conditions), 0L)
 })
 
 test_that("age_at returns correct age in years", {

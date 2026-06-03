@@ -1,5 +1,57 @@
 # R/generator.R
 
+#' Simulate a synthetic patient population
+#'
+#' Creates `n` synthetic patients, samples their demographics, and runs the
+#' full GMF module simulation for each one. The main entry point of the package.
+#'
+#' @param n Integer. Number of patients to generate. Default `1L`.
+#' @param seed Integer or `NULL`. Base random seed. Patient `i` gets seed
+#'   `seed + i - 1`. If `NULL`, seeds are drawn randomly.
+#' @param state Character or `NULL`. US state to sample demographics from.
+#' @param city Character or `NULL`. City to sample demographics from.
+#' @param gender Character or `NULL`. Force gender (`"M"` or `"F"`).
+#' @param min_age Integer. Minimum patient age at `end_date`. Default `0L`.
+#' @param max_age Integer. Maximum patient age at `end_date`. Default `140L`.
+#' @param modules List of Module objects or `NULL`. If `NULL`, all modules are
+#'   loaded from `inst/extdata/modules/` via [load_all_modules()].
+#' @param end_date POSIXct. Simulation end date. Default `Sys.time()`.
+#' @param mc.cores Integer. Number of parallel workers. Values > 1 use
+#'   `parallel::mclapply` (fork-based; Unix/macOS only). Default `1L`.
+#'
+#' @return A list of `n` [Person] objects with populated `.record` environments
+#'   containing encounters, conditions, medications, etc.
+#'
+#' @details
+#' With `mc.cores > 1`, each patient is simulated in a forked child process.
+#' The global `.REC$e` state is isolated per fork, so parallelism is safe.
+#' Note that `.new_id()` counters reset per child: IDs are unique within a
+#' patient but may collide across patients in the same run. Use
+#' [export_population()] to assign globally-unique identifiers.
+#'
+#' Speedup with 12 physical cores (macOS M-series, 2026):
+#' \itemize{
+#'   \item 10 patients: ~3.6×
+#'   \item 50 patients: ~6.5×
+#'   \item 100 patients: ~7×
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' modules <- load_all_modules()
+#'
+#' # Serial
+#' patients <- generate_population(10, seed = 42L, modules = modules,
+#'                                 end_date = as.POSIXct("2020-01-01"))
+#'
+#' # Parallel (Unix/macOS)
+#' patients <- generate_population(100, seed = 1L, modules = modules,
+#'                                 end_date = as.POSIXct("2020-01-01"),
+#'                                 mc.cores = parallel::detectCores(logical = FALSE))
+#' }
+#'
+#' @seealso [export_population()], [load_all_modules()], [simulate_life()]
+#' @export
 generate_population <- function(
   n        = 1L,
   seed     = NULL,
@@ -9,16 +61,17 @@ generate_population <- function(
   min_age  = 0L,
   max_age  = 140L,
   modules  = NULL,
-  end_date = Sys.time()
+  end_date = Sys.time(),
+  mc.cores = 1L
 ) {
   if (is.null(modules)) {
     modules <- load_all_modules()
   }
 
-  patients <- vector("list", n)
-  for (i in seq_len(n)) {
-    person_seed <- if (!is.null(seed)) seed + i - 1L
-                   else sample.int(.Machine$integer.max, 1L)
+  person_seeds <- if (!is.null(seed)) seed + seq_len(n) - 1L
+                  else sample.int(.Machine$integer.max, n)
+
+  simulate_one <- function(person_seed) {
     set.seed(person_seed)
     p <- Person(seed = as.integer(person_seed))
     p <- sample_demographics(p,
@@ -29,8 +82,12 @@ generate_population <- function(
       max_age  = max_age,
       end_date = end_date
     )
-    p <- simulate_life(p, modules, end_date)
-    patients[[i]] <- p
+    simulate_life(p, modules, end_date)
   }
-  patients
+
+  if (mc.cores > 1L && .Platform$OS.type == "unix") {
+    parallel::mclapply(person_seeds, simulate_one, mc.cores = mc.cores)
+  } else {
+    lapply(person_seeds, simulate_one)
+  }
 }

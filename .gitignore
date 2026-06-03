@@ -1,0 +1,32 @@
+# Claude Code local (no se comparte)
+.claude/settings.local.json
+
+# Entornos
+.venv/
+.env
+.env.*
+.envrc
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+renv/library/
+renv/staging/
+renv/python/
+
+# dbt
+target/
+dbt_packages/
+logs/
+
+# SO
+.DS_Store

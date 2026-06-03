@@ -30,16 +30,11 @@ test_that("Condition stores onset_time and is_active = TRUE by default", {
   expect_null(cond@end_time)
 })
 
-test_that("HealthRecord starts with empty lists", {
-  hr <- HealthRecord()
-  expect_equal(length(hr@encounters),    0L)
-  expect_equal(length(hr@conditions),    0L)
-  expect_equal(length(hr@medications),   0L)
-  expect_equal(length(hr@procedures),    0L)
-  expect_equal(length(hr@observations),  0L)
-  expect_equal(length(hr@immunizations), 0L)
-  expect_equal(length(hr@allergies),     0L)
-  expect_equal(length(hr@careplans),     0L)
+test_that("Person starts with empty .record environment", {
+  p <- Person(seed = 1L)
+  expect_true(is.environment(p@.record))
+  expect_equal(length(p@.record$conditions), 0L)
+  expect_equal(length(p@.record$encounters), 0L)
 })
 
 test_that("Medication is_active TRUE by default, end_time NULL", {

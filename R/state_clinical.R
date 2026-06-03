@@ -1,9 +1,17 @@
 # R/state_clinical.R
-# Real implementations of clinical states — overrides stubs in state_flow.R
+# Clinical state implementations using mutable environments for O(1) updates.
+# All environment writes use `rec <- .REC$e; rec[[key]] <- val` to avoid
+# triggering S7's @<- operator (which would copy the Person object).
+
+.rec_append <- function(person, field, item) {
+  rec <- .REC$e
+  rec[[field]][[length(rec[[field]]) + 1L]] <- item
+  person
+}
 
 .parse_codes <- function(raw_codes) {
   lapply(raw_codes %||% list(), function(c) {
-    Code(
+    list(
       system  = as.character(c[["system"]]  %||% ""),
       code    = as.character(c[["code"]]    %||% ""),
       display = as.character(c[["display"]] %||% "")
@@ -11,34 +19,52 @@
   })
 }
 
+.id_counter <- local({ n <- 0L; environment() })
+
 .new_id <- function() {
-  paste0(format(Sys.time(), "%Y%m%d%H%M%OS3"), "-", sample.int(99999L, 1L))
+  .id_counter$n <- .id_counter$n + 1L
+  paste0(.id_counter$n, "-", sample.int(.Machine$integer.max, 1L))
+}
+
+.new_item_env <- function(...) {
+  e <- new.env(parent = emptyenv())
+  args <- list(...)
+  for (nm in names(args)) e[[nm]] <- args[[nm]]
+  e
 }
 
 # --- Encounter ---
 
 .state_encounter <- function(state, person, time) {
-  def    <- state@definition
-  enc_id <- .new_id()
-  enc <- Encounter(
-    id              = enc_id,
-    time            = time,
-    codes           = .parse_codes(def[["codes"]]),
-    encounter_class = def[["encounter_class"]] %||% "ambulatory"
-  )
-  person@health_record@encounters <- c(person@health_record@encounters, list(enc))
-  person@attributes[["__current_encounter__"]] <- enc_id
+  rec <- .REC$e
+
+  if (state[["is_wellness"]]) {
+    wellness_key <- state[["wellness_key"]]
+    t_num <- rec$.t_num %||% as.numeric(time)
+    wt    <- rec[[wellness_key]]
+    if (!is.null(wt) && wt >= t_num) {
+      return(list(person = person, next_state = state[["name"]]))
+    }
+    rec[[wellness_key]] <- t_num
+  }
+
+  enc_env <- new.env(parent = emptyenv(), hash = FALSE)
+  enc_env$id              <- .new_id()
+  enc_env$time            <- time
+  enc_env$end_time        <- NULL
+  enc_env$codes           <- state[["codes"]]
+  enc_env$encounter_class <- state[["encounter_class"]]
+  rec[["__current_encounter_env__"]] <- enc_env
+  rec$encounters[[length(rec$encounters) + 1L]] <- enc_env
   .next(state, person, time)
 }
 
 .state_encounter_end <- function(state, person, time) {
-  enc_id <- person@attributes[["__current_encounter__"]]
-  if (!is.null(enc_id)) {
-    person@health_record@encounters <- lapply(
-      person@health_record@encounters,
-      function(e) { if (e@id == enc_id) { e@end_time <- time; e } else e }
-    )
-    person@attributes[["__current_encounter__"]] <- NULL
+  rec     <- .REC$e
+  enc_env <- rec[["__current_encounter_env__"]]
+  if (!is.null(enc_env)) {
+    enc_env$end_time <- time
+    rec[["__current_encounter_env__"]] <- NULL
   }
   .next(state, person, time)
 }
@@ -46,136 +72,143 @@
 # --- Condition ---
 
 .state_condition_onset <- function(state, person, time) {
-  def     <- state@definition
-  cond_id <- .new_id()
-  cond <- Condition(
-    id    = cond_id,
-    time  = time,
-    codes = .parse_codes(def[["codes"]])
-  )
-  person@health_record@conditions <- c(person@health_record@conditions, list(cond))
-  person@attributes[[paste0("__condition_ref__", state@name)]] <- cond_id
+  rec      <- .REC$e
+  cond_env <- new.env(parent = emptyenv(), hash = FALSE)
+  cond_env$id        <- .new_id()
+  cond_env$time      <- time
+  cond_env$codes     <- state[["codes"]]
+  cond_env$is_active <- TRUE
+  cond_env$end_time  <- NULL
+  rec$conditions[[length(rec$conditions) + 1L]] <- cond_env
+  rec[[state[["cond_key"]]]] <- cond_env
+  primary_code <- cond_env$codes[[1L]][["code"]]
+  if (!is.null(primary_code)) rec$.active_conditions[[primary_code]] <- cond_env
   .next(state, person, time)
 }
 
 .state_condition_end <- function(state, person, time) {
-  onset_name <- state@definition[["condition_onset"]] %||% ""
-  cond_id    <- person@attributes[[paste0("__condition_ref__", onset_name)]]
-  person@health_record@conditions <- lapply(
-    person@health_record@conditions,
-    function(c) {
-      if (!is.null(cond_id) && c@id == cond_id) {
-        c@is_active <- FALSE; c@end_time <- time; c
-      } else c
-    }
-  )
+  rec      <- .REC$e
+  cond_env <- rec[[state[["cond_end_key"]]]]
+  if (!is.null(cond_env)) {
+    primary_code <- cond_env$codes[[1L]][["code"]]
+    if (!is.null(primary_code) && exists(primary_code, envir = rec$.active_conditions, inherits = FALSE))
+      rm(list = primary_code, envir = rec$.active_conditions)
+    cond_env$is_active <- FALSE
+    cond_env$end_time  <- time
+  }
   .next(state, person, time)
 }
 
 # --- Medication ---
 
 .state_medication_order <- function(state, person, time) {
-  def    <- state@definition
-  med_id <- .new_id()
-  med <- Medication(
-    id    = med_id,
-    time  = time,
-    codes = .parse_codes(def[["codes"]])
-  )
-  person@health_record@medications <- c(person@health_record@medications, list(med))
-  person@attributes[[paste0("__medication_ref__", state@name)]] <- med_id
+  rec     <- .REC$e
+  med_env <- new.env(parent = emptyenv(), hash = FALSE)
+  med_env$id        <- .new_id()
+  med_env$time      <- time
+  med_env$codes     <- state[["codes"]]
+  med_env$is_active <- TRUE
+  med_env$end_time  <- NULL
+  rec$medications[[length(rec$medications) + 1L]] <- med_env
+  rec[[state[["med_key"]]]] <- med_env
+  primary_code <- med_env$codes[[1L]][["code"]]
+  if (!is.null(primary_code)) rec$.active_medications[[primary_code]] <- med_env
   .next(state, person, time)
 }
 
 .state_medication_end <- function(state, person, time) {
-  med_name <- state@definition[["medication_order"]] %||% ""
-  med_id   <- person@attributes[[paste0("__medication_ref__", med_name)]]
-  person@health_record@medications <- lapply(
-    person@health_record@medications,
-    function(m) {
-      if (!is.null(med_id) && m@id == med_id) {
-        m@is_active <- FALSE; m@end_time <- time; m
-      } else m
-    }
-  )
+  rec     <- .REC$e
+  med_env <- rec[[state[["med_end_key"]]]]
+  if (!is.null(med_env)) {
+    primary_code <- med_env$codes[[1L]][["code"]]
+    if (!is.null(primary_code) && exists(primary_code, envir = rec$.active_medications, inherits = FALSE))
+      rm(list = primary_code, envir = rec$.active_medications)
+    med_env$is_active <- FALSE
+    med_env$end_time  <- time
+  }
   .next(state, person, time)
 }
 
 # --- CarePlan ---
 
 .state_careplan_start <- function(state, person, time) {
-  def   <- state@definition
-  cp_id <- .new_id()
-  cp <- CarePlan(
-    id         = cp_id,
-    time       = time,
-    codes      = .parse_codes(def[["codes"]]),
-    activities = .parse_codes(def[["activities"]])
-  )
-  person@health_record@careplans <- c(person@health_record@careplans, list(cp))
-  person@attributes[[paste0("__careplan_ref__", state@name)]] <- cp_id
+  rec    <- .REC$e
+  cp_env <- new.env(parent = emptyenv(), hash = FALSE)
+  cp_env$id         <- .new_id()
+  cp_env$time       <- time
+  cp_env$codes      <- state[["codes"]]
+  cp_env$activities <- state[["activities"]]
+  cp_env$is_active  <- TRUE
+  cp_env$end_time   <- NULL
+  rec$careplans[[length(rec$careplans) + 1L]] <- cp_env
+  rec[[state[["cp_key"]]]] <- cp_env
+  primary_code <- cp_env$codes[[1L]][["code"]]
+  if (!is.null(primary_code)) rec$.active_careplans[[primary_code]] <- cp_env
   .next(state, person, time)
 }
 
 .state_careplan_end <- function(state, person, time) {
-  cp_name <- state@definition[["careplan"]] %||% ""
-  cp_id   <- person@attributes[[paste0("__careplan_ref__", cp_name)]]
-  person@health_record@careplans <- lapply(
-    person@health_record@careplans,
-    function(cp) {
-      if (!is.null(cp_id) && cp@id == cp_id) {
-        cp@is_active <- FALSE; cp@end_time <- time; cp
-      } else cp
-    }
-  )
+  rec    <- .REC$e
+  cp_env <- rec[[state[["cp_end_key"]]]]
+  if (!is.null(cp_env)) {
+    primary_code <- cp_env$codes[[1L]][["code"]]
+    if (!is.null(primary_code) && exists(primary_code, envir = rec$.active_careplans, inherits = FALSE))
+      rm(list = primary_code, envir = rec$.active_careplans)
+    cp_env$is_active <- FALSE
+    cp_env$end_time  <- time
+  }
   .next(state, person, time)
 }
 
 # --- Allergy ---
 
 .state_allergy_onset <- function(state, person, time) {
-  def <- state@definition
-  al <- AllergyIntolerance(
-    id           = .new_id(),
-    time         = time,
-    codes        = .parse_codes(def[["codes"]]),
-    allergy_type = def[["allergy_type"]] %||% NULL,
-    category     = def[["category"]] %||% NULL
-  )
-  person@health_record@allergies <- c(person@health_record@allergies, list(al))
+  rec     <- .REC$e
+  alg_env <- new.env(parent = emptyenv(), hash = FALSE)
+  alg_env$id           <- .new_id()
+  alg_env$time         <- time
+  alg_env$codes        <- state[["codes"]]
+  alg_env$is_active    <- TRUE
+  alg_env$end_time     <- NULL
+  alg_env$allergy_type <- state[["allergy_type"]]
+  alg_env$category     <- state[["category"]]
+  rec$allergies[[length(rec$allergies) + 1L]] <- alg_env
+  rec[[state[["allergy_key"]]]] <- alg_env
   .next(state, person, time)
 }
 
 .state_allergy_end <- function(state, person, time) {
-  person@health_record@allergies <- lapply(
-    person@health_record@allergies,
-    function(a) { if (a@is_active) { a@is_active <- FALSE; a@end_time <- time; a } else a }
-  )
+  rec     <- .REC$e
+  alg_env <- rec[[state[["alg_end_key"]]]]
+  if (!is.null(alg_env)) {
+    alg_env$is_active <- FALSE
+    alg_env$end_time  <- time
+  }
   .next(state, person, time)
 }
 
 # --- Procedure ---
 
 .state_procedure <- function(state, person, time) {
-  def  <- state@definition
-  proc <- Procedure(
+  rec <- .REC$e
+  n   <- length(rec$procedures) + 1L
+  rec$procedures[[n]] <- list(
     id    = .new_id(),
     time  = time,
-    codes = .parse_codes(def[["codes"]])
+    codes = state[["codes"]]
   )
-  person@health_record@procedures <- c(person@health_record@procedures, list(proc))
   .next(state, person, time)
 }
 
 # --- Vaccine ---
 
 .state_vaccine <- function(state, person, time) {
-  def <- state@definition
-  imm <- Immunization(
+  rec <- .REC$e
+  n   <- length(rec$immunizations) + 1L
+  rec$immunizations[[n]] <- list(
     id    = .new_id(),
     time  = time,
-    codes = .parse_codes(def[["codes"]])
+    codes = state[["codes"]]
   )
-  person@health_record@immunizations <- c(person@health_record@immunizations, list(imm))
   .next(state, person, time)
 }

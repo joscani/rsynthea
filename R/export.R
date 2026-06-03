@@ -1,5 +1,42 @@
 # R/export.R
 
+#' Export a simulated population to tidy tibbles
+#'
+#' Converts a list of simulated [Person] objects into a named list of tibbles
+#' (one per clinical domain), optionally writing them as CSV files.
+#'
+#' @param patients List of [Person] objects, as returned by
+#'   [generate_population()].
+#' @param output_dir Character or `NULL`. If provided, each tibble is written
+#'   to `<output_dir>/<domain>.csv`. The directory is created if it does not
+#'   exist.
+#'
+#' @return A named list of tibbles:
+#' \describe{
+#'   \item{`patients`}{One row per patient (id, gender, birth_date, is_alive, …).}
+#'   \item{`encounters`}{Clinical encounters with start/end times and codes.}
+#'   \item{`conditions`}{Active and resolved conditions.}
+#'   \item{`medications`}{Medication orders with start/end times.}
+#'   \item{`procedures`}{Procedures performed.}
+#'   \item{`observations`}{Lab and clinical observations.}
+#'   \item{`immunizations`}{Vaccines administered.}
+#'   \item{`allergies`}{Allergy records.}
+#'   \item{`careplans`}{Care plan records.}
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' patients <- generate_population(5, seed = 1L,
+#'                                 end_date = as.POSIXct("2020-01-01"))
+#' tbls <- export_population(patients)
+#' tbls$encounters
+#'
+#' # Write CSVs
+#' export_population(patients, output_dir = tempdir())
+#' }
+#'
+#' @seealso [generate_population()]
+#' @export
 export_population <- function(patients, output_dir = NULL) {
   tbls <- list(
     patients      = .patients_tbl(patients),
@@ -28,9 +65,9 @@ export_population <- function(patients, output_dir = NULL) {
   dplyr::bind_rows(rows)
 }
 
-.first_code  <- function(codes) if (length(codes) > 0) codes[[1]]@code    else NA_character_
-.first_sys   <- function(codes) if (length(codes) > 0) codes[[1]]@system  else NA_character_
-.first_disp  <- function(codes) if (length(codes) > 0) codes[[1]]@display else NA_character_
+.first_code  <- function(codes) if (length(codes) > 0) codes[[1]][["code"]]    else NA_character_
+.first_sys   <- function(codes) if (length(codes) > 0) codes[[1]][["system"]]  else NA_character_
+.first_disp  <- function(codes) if (length(codes) > 0) codes[[1]][["display"]] else NA_character_
 
 .patients_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
@@ -53,17 +90,17 @@ export_population <- function(patients, output_dir = NULL) {
 
 .encounters_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@encounters) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@encounters, function(e) {
+    if (length(p@.record$encounters) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$encounters, function(e) {
       tibble::tibble(
-        id              = e@id,
+        id              = e$id,
         patient_id      = p@id,
-        time            = e@time,
-        end_time        = e@end_time %||% NA,
-        encounter_class = e@encounter_class,
-        code            = .first_code(e@codes),
-        code_system     = .first_sys(e@codes),
-        description     = .first_disp(e@codes)
+        time            = e$time,
+        end_time        = e$end_time %||% NA,
+        encounter_class = e$encounter_class %||% NA_character_,
+        code            = .first_code(e$codes),
+        code_system     = .first_sys(e$codes),
+        description     = .first_disp(e$codes)
       )
     }))
   })
@@ -71,17 +108,17 @@ export_population <- function(patients, output_dir = NULL) {
 
 .conditions_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@conditions) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@conditions, function(c) {
+    if (length(p@.record$conditions) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$conditions, function(c) {
       tibble::tibble(
-        id          = c@id,
+        id          = c$id,
         patient_id  = p@id,
-        onset_time  = c@time,
-        end_time    = c@end_time %||% NA,
-        is_active   = c@is_active,
-        code        = .first_code(c@codes),
-        code_system = .first_sys(c@codes),
-        description = .first_disp(c@codes)
+        onset_time  = c$time,
+        end_time    = c$end_time %||% NA,
+        is_active   = c$is_active,
+        code        = .first_code(c$codes),
+        code_system = .first_sys(c$codes),
+        description = .first_disp(c$codes)
       )
     }))
   })
@@ -89,17 +126,17 @@ export_population <- function(patients, output_dir = NULL) {
 
 .medications_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@medications) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@medications, function(m) {
+    if (length(p@.record$medications) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$medications, function(m) {
       tibble::tibble(
-        id          = m@id,
+        id          = m$id,
         patient_id  = p@id,
-        start_time  = m@time,
-        end_time    = m@end_time %||% NA,
-        is_active   = m@is_active,
-        code        = .first_code(m@codes),
-        code_system = .first_sys(m@codes),
-        description = .first_disp(m@codes)
+        start_time  = m$time,
+        end_time    = m$end_time %||% NA,
+        is_active   = m$is_active,
+        code        = .first_code(m$codes),
+        code_system = .first_sys(m$codes),
+        description = .first_disp(m$codes)
       )
     }))
   })
@@ -107,15 +144,15 @@ export_population <- function(patients, output_dir = NULL) {
 
 .procedures_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@procedures) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@procedures, function(pr) {
+    if (length(p@.record$procedures) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$procedures, function(pr) {
       tibble::tibble(
-        id          = pr@id,
+        id          = pr$id,
         patient_id  = p@id,
-        time        = pr@time,
-        code        = .first_code(pr@codes),
-        code_system = .first_sys(pr@codes),
-        description = .first_disp(pr@codes)
+        time        = pr$time,
+        code        = .first_code(pr$codes),
+        code_system = .first_sys(pr$codes),
+        description = .first_disp(pr$codes)
       )
     }))
   })
@@ -123,18 +160,18 @@ export_population <- function(patients, output_dir = NULL) {
 
 .observations_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@observations) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@observations, function(o) {
+    if (length(p@.record$observations) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$observations, function(o) {
       tibble::tibble(
-        id          = o@id,
+        id          = o$id,
         patient_id  = p@id,
-        time        = o@time,
-        value       = as.character(o@value %||% NA),
-        unit        = o@unit     %||% NA_character_,
-        category    = o@category %||% NA_character_,
-        code        = .first_code(o@codes),
-        code_system = .first_sys(o@codes),
-        description = .first_disp(o@codes)
+        time        = o$time,
+        value       = as.character(o$value %||% NA),
+        unit        = o$unit     %||% NA_character_,
+        category    = o$category %||% NA_character_,
+        code        = .first_code(o$codes),
+        code_system = .first_sys(o$codes),
+        description = .first_disp(o$codes)
       )
     }))
   })
@@ -142,14 +179,14 @@ export_population <- function(patients, output_dir = NULL) {
 
 .immunizations_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@immunizations) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@immunizations, function(i) {
+    if (length(p@.record$immunizations) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$immunizations, function(i) {
       tibble::tibble(
-        id          = i@id,
+        id          = i$id,
         patient_id  = p@id,
-        time        = i@time,
-        code        = .first_code(i@codes),
-        description = .first_disp(i@codes)
+        time        = i$time,
+        code        = .first_code(i$codes),
+        description = .first_disp(i$codes)
       )
     }))
   })
@@ -157,16 +194,16 @@ export_population <- function(patients, output_dir = NULL) {
 
 .allergies_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@allergies) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@allergies, function(a) {
+    if (length(p@.record$allergies) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$allergies, function(a) {
       tibble::tibble(
-        id          = a@id,
+        id          = a$id,
         patient_id  = p@id,
-        onset_time  = a@time,
-        end_time    = a@end_time %||% NA,
-        is_active   = a@is_active,
-        code        = .first_code(a@codes),
-        description = .first_disp(a@codes)
+        onset_time  = a$time,
+        end_time    = a$end_time %||% NA,
+        is_active   = a$is_active,
+        code        = .first_code(a$codes),
+        description = .first_disp(a$codes)
       )
     }))
   })
@@ -174,16 +211,16 @@ export_population <- function(patients, output_dir = NULL) {
 
 .careplans_tbl <- function(patients) {
   .flatten_tbl(patients, function(p) {
-    if (length(p@health_record@careplans) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@health_record@careplans, function(cp) {
+    if (length(p@.record$careplans) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$careplans, function(cp) {
       tibble::tibble(
-        id          = cp@id,
+        id          = cp$id,
         patient_id  = p@id,
-        start_time  = cp@time,
-        end_time    = cp@end_time %||% NA,
-        is_active   = cp@is_active,
-        code        = .first_code(cp@codes),
-        description = .first_disp(cp@codes)
+        start_time  = cp$time,
+        end_time    = cp$end_time %||% NA,
+        is_active   = cp$is_active,
+        code        = .first_code(cp$codes),
+        description = .first_disp(cp$codes)
       )
     }))
   })

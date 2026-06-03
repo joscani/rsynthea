@@ -2,6 +2,12 @@
 
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
+# Package-level cache: person@.record is always the same env for a given patient.
+# Setting this once per simulate_life avoids repeated S7 @-dispatch in hot paths.
+.REC <- local({ e <- NULL; environment() })
+
+.DATE_CACHE <- new.env(parent = emptyenv(), hash = TRUE)
+
 evaluate_condition <- function(cond, person, time) {
   if (is.null(cond) || length(cond) == 0) return(TRUE)
   ct <- cond[["condition_type"]]
@@ -55,7 +61,16 @@ evaluate_condition <- function(cond, person, time) {
 }
 
 .cond_age <- function(cond, person, time) {
-  age <- age_at(person, time)
+  rec <- .REC$e
+  birth_num <- rec$.birth_num
+  if (is.null(birth_num)) {
+    birth <- person@attributes[["birth_date"]]
+    if (is.null(birth)) return(FALSE)
+    birth_num <- as.numeric(birth)
+    rec$.birth_num <- birth_num
+  }
+  t_num <- rec$.t_num %||% as.numeric(time)
+  age   <- (t_num - birth_num) / (365.25 * 86400)
   qty <- as.numeric(cond[["quantity"]] %||% 0)
   qty <- switch(cond[["unit"]] %||% "years",
     "months" = qty / 12,
@@ -71,8 +86,13 @@ evaluate_condition <- function(cond, person, time) {
   if (is.null(y)) return(FALSE)
   m <- cond[["month"]] %||% 1
   d <- cond[["day"]] %||% 1
-  target <- as.POSIXct(paste(y, m, d, sep = "-"))
-  .compare(as.numeric(time), cond[["operator"]] %||% "==", as.numeric(target))
+  key <- paste0(y, "-", m, "-", d)
+  target <- .DATE_CACHE[[key]]
+  if (is.null(target)) {
+    target <- as.numeric(as.POSIXct(key))
+    .DATE_CACHE[[key]] <- target
+  }
+  .compare(.REC$e$.t_num %||% as.numeric(time), cond[["operator"]] %||% "==", target)
 }
 
 .cond_race <- function(cond, person) {
@@ -101,43 +121,36 @@ evaluate_condition <- function(cond, person, time) {
 .cond_observation <- function(cond, person) {
   target_code <- (cond[["codes"]] %||% list())[[1]]
   if (is.null(target_code)) return(FALSE)
-  obs_list <- person@health_record@observations
+  obs_list <- .REC$e$observations
   matching <- Filter(function(o) {
-    any(vapply(o@codes, function(c) c@code == target_code[["code"]], logical(1)))
+    any(vapply(o$codes, function(c) c[["code"]] == target_code[["code"]], logical(1)))
   }, obs_list)
   if (length(matching) == 0) return(FALSE)
   latest <- matching[[length(matching)]]
   if (!is.null(cond[["value"]])) {
-    .compare(latest@value, cond[["operator"]] %||% "==", cond[["value"]])
+    .compare(latest$value, cond[["operator"]] %||% "==", cond[["value"]])
   } else TRUE
 }
 
 .cond_active_condition <- function(cond, person) {
-  target_code <- (cond[["codes"]] %||% list())[[1]]
-  if (is.null(target_code)) return(FALSE)
-  any(vapply(person@health_record@conditions, function(c) {
-    c@is_active && any(vapply(c@codes, function(cd) cd@code == target_code[["code"]], logical(1)))
-  }, logical(1)))
+  target_code <- (cond[["codes"]] %||% list())[[1L]][["code"]]
+  if (!is.character(target_code) || length(target_code) != 1L) return(FALSE)
+  !is.null(.REC$e$.active_conditions[[target_code]])
 }
 
 .cond_active_medication <- function(cond, person) {
-  target_code <- (cond[["codes"]] %||% list())[[1]]
-  if (is.null(target_code)) return(FALSE)
-  any(vapply(person@health_record@medications, function(m) {
-    m@is_active && any(vapply(m@codes, function(cd) cd@code == target_code[["code"]], logical(1)))
-  }, logical(1)))
+  target_code <- (cond[["codes"]] %||% list())[[1L]][["code"]]
+  if (!is.character(target_code) || length(target_code) != 1L) return(FALSE)
+  !is.null(.REC$e$.active_medications[[target_code]])
 }
 
 .cond_active_careplan <- function(cond, person) {
-  target_code <- (cond[["codes"]] %||% list())[[1]]
-  if (is.null(target_code)) return(FALSE)
-  any(vapply(person@health_record@careplans, function(cp) {
-    cp@is_active && any(vapply(cp@codes, function(cd) cd@code == target_code[["code"]], logical(1)))
-  }, logical(1)))
+  target_code <- (cond[["codes"]] %||% list())[[1L]][["code"]]
+  if (!is.character(target_code) || length(target_code) != 1L) return(FALSE)
+  !is.null(.REC$e$.active_careplans[[target_code]])
 }
 
 .cond_prior_state <- function(cond, person) {
   state_name <- cond[["name"]] %||% ""
-  key <- paste0("__visited__", state_name)
-  isTRUE(person@attributes[[key]])
+  isTRUE(.REC$e[[paste0("__visited__", state_name)]])
 }

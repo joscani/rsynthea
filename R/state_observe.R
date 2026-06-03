@@ -1,146 +1,120 @@
 # R/state_observe.R
 
 .resolve_obs_value <- function(def, person) {
-  if (!is.null(def[["exact"]])) {
-    return(as.numeric(def[["exact"]][["quantity"]]))
-  }
-  if (!is.null(def[["range"]])) {
-    low  <- as.numeric(def[["range"]][["low"]])
-    high <- as.numeric(def[["range"]][["high"]])
-    return(runif(1, low, high))
-  }
-  if (!is.null(def[["attribute"]])) {
-    return(person@attributes[[def[["attribute"]]]])
-  }
-  if (!is.null(def[["value"]])) {
-    return(def[["value"]])
-  }
+  if (!is.null(def[["exact"]]))     return(as.numeric(def[["exact"]][["quantity"]]))
+  if (!is.null(def[["range"]]))     return(runif(1, as.numeric(def[["range"]][["low"]]),
+                                                    as.numeric(def[["range"]][["high"]])))
+  if (!is.null(def[["attribute"]])) return(person@attributes[[def[["attribute"]]]])
+  if (!is.null(def[["value"]]))     return(def[["value"]])
   NA_real_
 }
 
 .state_observation <- function(state, person, time) {
-  def <- state@definition
-  obs <- Observation(
+  person <- .rec_append(person, "observations", list(
     id       = .new_id(),
     time     = time,
-    codes    = .parse_codes(def[["codes"]]),
-    value    = .resolve_obs_value(def, person),
-    unit     = def[["unit"]] %||% NULL,
-    category = def[["category"]] %||% NULL
-  )
-  person@health_record@observations <- c(person@health_record@observations, list(obs))
+    codes    = state[["codes"]],
+    value    = .resolve_obs_value(state[["definition"]], person),
+    unit     = state[["unit"]],
+    category = state[["category"]]
+  ))
   .next(state, person, time)
 }
 
 .state_multi_observation <- function(state, person, time) {
-  def      <- state@definition
-  obs_list <- def[["observations"]] %||% list()
-  for (obs_def in obs_list) {
-    obs <- Observation(
+  def       <- state[["definition"]]
+  sub_obs   <- def[["observations"]] %||% list()
+  sub_codes <- state[["sub_codes"]]
+  category  <- state[["category"]]
+  for (i in seq_along(sub_obs)) {
+    obs_def <- sub_obs[[i]]
+    person <- .rec_append(person, "observations", list(
       id       = .new_id(),
       time     = time,
-      codes    = .parse_codes(obs_def[["codes"]]),
+      codes    = sub_codes[[i]],
       value    = .resolve_obs_value(obs_def, person),
       unit     = obs_def[["unit"]] %||% NULL,
-      category = def[["category"]] %||% NULL
-    )
-    person@health_record@observations <- c(person@health_record@observations, list(obs))
+      category = category
+    ))
   }
   .next(state, person, time)
 }
 
 .state_diagnostic_report <- function(state, person, time) {
-  def       <- state@definition
-  obs_defs  <- def[["observations"]] %||% list()
-  obs_entries <- lapply(obs_defs, function(o) {
-    Observation(
+  def       <- state[["definition"]]
+  sub_obs   <- def[["observations"]] %||% list()
+  sub_codes <- state[["sub_codes"]]
+  obs_entries <- vector("list", length(sub_obs))
+  for (i in seq_along(sub_obs)) {
+    o <- sub_obs[[i]]
+    obs_entries[[i]] <- list(
       id    = .new_id(),
       time  = time,
-      codes = .parse_codes(o[["codes"]]),
+      codes = sub_codes[[i]],
       value = .resolve_obs_value(o, person),
       unit  = o[["unit"]] %||% NULL
     )
-  })
-  report <- DiagnosticReport(
+  }
+  person <- .rec_append(person, "reports", list(
     id           = .new_id(),
     time         = time,
-    codes        = .parse_codes(def[["codes"]]),
+    codes        = state[["codes"]],
     observations = obs_entries
-  )
-  person@health_record@reports <- c(person@health_record@reports, list(report))
+  ))
   .next(state, person, time)
 }
 
 .state_vital_sign <- function(state, person, time) {
-  def     <- state@definition
-  vs_name <- def[["vital_sign"]] %||% ""
-  value   <- .resolve_obs_value(def, person)
-  person@vital_signs[[vs_name]] <- list(
-    value = value,
-    unit  = def[["unit"]] %||% NULL,
+  person@vital_signs[[state[["vs_name"]]]] <- list(
+    value = .resolve_obs_value(state[["definition"]], person),
+    unit  = state[["unit"]],
     time  = time
   )
   .next(state, person, time)
 }
 
 .state_symptom <- function(state, person, time) {
-  def      <- state@definition
-  sym_name <- def[["symptom"]] %||% ""
-  value    <- as.numeric(.resolve_obs_value(def, person) %||% 0)
-  value    <- max(0, min(100, value))
-  person@symptoms[[sym_name]] <- list(
-    value = value,
-    cause = def[["cause"]] %||% NULL,
-    time  = time
-  )
+  value <- max(0, min(100, as.numeric(.resolve_obs_value(state[["definition"]], person) %||% 0)))
+  person@symptoms[[state[["sym_name"]]]] <- list(value = value, cause = state[["sym_cause"]], time = time)
   .next(state, person, time)
 }
 
 .state_imaging_study <- function(state, person, time) {
-  def <- state@definition
-  img <- ImagingStudy(
+  person <- .rec_append(person, "imaging", list(
     id     = .new_id(),
     time   = time,
-    codes  = .parse_codes(def[["codes"]]),
-    series = def[["series"]] %||% list()
-  )
-  person@health_record@imaging <- c(person@health_record@imaging, list(img))
+    codes  = state[["codes"]],
+    series = state[["series"]]
+  ))
   .next(state, person, time)
 }
 
 .state_device <- function(state, person, time) {
-  def    <- state@definition
   dev_id <- .new_id()
-  dev <- Device(
-    id    = dev_id,
-    time  = time,
-    codes = .parse_codes(def[["codes"]])
-  )
-  person@health_record@devices <- c(person@health_record@devices, list(dev))
-  person@attributes[[paste0("__device_ref__", state@name)]] <- dev_id
+  person <- .rec_append(person, "devices", list(
+    id        = dev_id,
+    time      = time,
+    codes     = state[["codes"]],
+    is_active = TRUE,
+    end_time  = NULL
+  ))
+  rec2 <- .REC$e; rec2[[state[["device_key"]]]] <- dev_id
   .next(state, person, time)
 }
 
 .state_device_end <- function(state, person, time) {
-  dev_name <- state@definition[["device"]] %||% ""
-  dev_id   <- person@attributes[[paste0("__device_ref__", dev_name)]]
-  person@health_record@devices <- lapply(
-    person@health_record@devices,
-    function(d) {
-      if (!is.null(dev_id) && d@id == dev_id) {
-        d@is_active <- FALSE; d@end_time <- time; d
-      } else d
-    }
-  )
+  dev_id <- .REC$e[[state[["device_end_key"]]]]
+  rec    <- .REC$e
+  rec$devices <- lapply(rec$devices, function(d) {
+    if (!is.null(dev_id) && d$id == dev_id) {
+      d$is_active <- FALSE; d$end_time <- time; d
+    } else d
+  })
   .next(state, person, time)
 }
 
-.state_supply_list <- function(state, person, time) {
-  .next(state, person, time)
-}
-
+.state_supply_list    <- function(state, person, time) .next(state, person, time)
 .state_call_submodule <- function(state, person, time) {
-  sub_name <- state@definition[["submodule"]] %||% ""
-  person@attributes[[paste0("__call_submodule__", state@name)]] <- sub_name
+  rec <- .REC$e; rec[[state[["call_key"]]]] <- state[["submodule_name"]]
   .next(state, person, time)
 }

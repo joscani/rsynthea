@@ -1,29 +1,29 @@
 # R/state_flow.R
+# process_state dispatches on state[["type"]] (plain list field, no S7 dispatch).
 
-# process_state generic — dispatches by GMFState type string
-process_state <- new_generic("process_state", "state")
-
-method(process_state, GMFState) <- function(state, person, time) {
-  switch(state@type,
-    "Initial"          = .state_initial(state, person, time),
-    "Simple"           = .state_simple(state, person, time),
-    "Terminal"         = list(person = person, next_state = NULL),
+process_state <- function(state, person, time) {
+  force(person)
+  if (is.null(.REC$e)) .REC$e <- person@.record
+  switch(state[["type"]],
     "Delay"            = .state_delay(state, person, time),
     "Guard"            = .state_guard(state, person, time),
+    "Simple"           = .state_simple(state, person, time),
+    "Encounter"        = .state_encounter(state, person, time),
+    "EncounterEnd"     = .state_encounter_end(state, person, time),
+    "Initial"          = .state_initial(state, person, time),
+    "ConditionOnset"   = .state_condition_onset(state, person, time),
+    "Terminal"         = list(person = person, next_state = NULL),
+    "Procedure"        = .state_procedure(state, person, time),
+    "ConditionEnd"     = .state_condition_end(state, person, time),
     "SetAttribute"     = .state_set_attribute(state, person, time),
     "Counter"          = .state_counter(state, person, time),
     "Death"            = .state_death(state, person, time),
-    "Encounter"        = .state_encounter(state, person, time),
-    "EncounterEnd"     = .state_encounter_end(state, person, time),
-    "ConditionOnset"   = .state_condition_onset(state, person, time),
-    "ConditionEnd"     = .state_condition_end(state, person, time),
     "MedicationOrder"  = .state_medication_order(state, person, time),
     "MedicationEnd"    = .state_medication_end(state, person, time),
     "CarePlanStart"    = .state_careplan_start(state, person, time),
     "CarePlanEnd"      = .state_careplan_end(state, person, time),
     "AllergyOnset"     = .state_allergy_onset(state, person, time),
     "AllergyEnd"       = .state_allergy_end(state, person, time),
-    "Procedure"        = .state_procedure(state, person, time),
     "Observation"      = .state_observation(state, person, time),
     "MultiObservation" = .state_multi_observation(state, person, time),
     "DiagnosticReport" = .state_diagnostic_report(state, person, time),
@@ -36,36 +36,35 @@ method(process_state, GMFState) <- function(state, person, time) {
     "DeviceEnd"        = .state_device_end(state, person, time),
     "SupplyList"       = .state_supply_list(state, person, time),
     {
-      warning("Unknown state type: ", state@type)
+      warning("Unknown state type: ", state[["type"]])
       .next(state, person, time)
     }
   )
 }
 
-# Mark state visited and resolve transition
 .next <- function(state, person, time) {
-  key <- paste0("__visited__", state@name)
-  person@attributes[[key]] <- TRUE
-  list(person = person, next_state = resolve_transition(state@transition, person, time))
+  rec <- .REC$e
+  rec[[state[["visited_key"]]]] <- TRUE
+  list(person = person, next_state = resolve_transition(state[["transition"]], person, time))
 }
 
 .state_initial <- function(state, person, time) .next(state, person, time)
 .state_simple  <- function(state, person, time) .next(state, person, time)
 
 .state_delay <- function(state, person, time) {
-  def <- state@definition
-  key <- paste0("__delay_until__", state@name)
-  delay_until <- person@attributes[[key]]
+  key <- state[["delay_key"]]
+  rec <- .REC$e
+  delay_until <- rec[[key]]
+  t_num <- rec$.t_num %||% as.numeric(time)
 
   if (is.null(delay_until)) {
-    duration_secs <- .resolve_duration(def)
-    person@attributes[[key]] <- time + duration_secs
-    return(list(person = person, next_state = state@name))
+    rec[[key]] <- t_num + .resolve_duration(state[["definition"]])
+    return(list(person = person, next_state = state[["name"]]))
   }
-  if (time < delay_until) {
-    return(list(person = person, next_state = state@name))
+  if (t_num < delay_until) {
+    return(list(person = person, next_state = state[["name"]]))
   }
-  person@attributes[[key]] <- NULL
+  rec[[key]] <- NULL
   .next(state, person, time)
 }
 
@@ -91,37 +90,34 @@ method(process_state, GMFState) <- function(state, person, time) {
 }
 
 .state_guard <- function(state, person, time) {
-  allow <- state@definition[["allow"]]
+  allow <- state[["guard_allow"]]
   if (!is.null(allow) && !evaluate_condition(allow, person, time)) {
-    return(list(person = person, next_state = state@name))
+    return(list(person = person, next_state = state[["name"]]))
   }
   .next(state, person, time)
 }
 
 .state_set_attribute <- function(state, person, time) {
-  def <- state@definition
-  attr_name <- def[["attribute"]]
+  attr_name <- state[["attr_name"]]
   if (!is.null(attr_name)) {
-    val <- def[["value"]]
-    person@attributes[[attr_name]] <- val
+    person@attributes[[attr_name]] <- state[["attr_value"]]
   }
   .next(state, person, time)
 }
 
 .state_counter <- function(state, person, time) {
-  def       <- state@definition
-  attr_name <- def[["attribute"]]
-  action    <- def[["action"]] %||% "increment"
-  amount    <- as.numeric(def[["amount"]] %||% 1)
+  attr_name <- state[["attr_name"]]
   current   <- as.numeric(person@attributes[[attr_name]] %||% 0)
-  person@attributes[[attr_name]] <- if (action == "decrement") current - amount
-                                    else current + amount
+  person@attributes[[attr_name]] <- if (state[["counter_action"]] == "decrement")
+                                      current - state[["counter_amount"]]
+                                    else
+                                      current + state[["counter_amount"]]
   .next(state, person, time)
 }
 
 .state_death <- function(state, person, time) {
+  .REC$e$.is_alive <- FALSE
   person@is_alive <- FALSE
   person@attributes[["death_date"]] <- time
   list(person = person, next_state = NULL)
 }
-

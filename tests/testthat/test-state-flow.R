@@ -15,6 +15,7 @@ make_person_basic <- function() {
   p <- Person(seed = 1L)
   p@attributes[["birth_date"]] <- as.POSIXct("1990-01-01")
   p@attributes[["gender"]]     <- "M"
+  .REC$e <- p@.record
   p
 }
 

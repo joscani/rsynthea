@@ -5,12 +5,13 @@ make_person_clinical <- function() {
   p <- Person(seed = 1L)
   p@attributes[["birth_date"]] <- as.POSIXct("1980-01-01")
   p@attributes[["gender"]] <- "M"
+  .REC$e <- p@.record
   p
 }
 
 # --- Encounter ---
 
-test_that("Encounter adds entry to health_record@encounters", {
+test_that("Encounter adds entry to .record$encounters", {
   s <- GMFState(
     name = "AnnualVisit", type = "Encounter",
     definition = list(
@@ -23,18 +24,22 @@ test_that("Encounter adds entry to health_record@encounters", {
   )
   p <- make_person_clinical()
   r <- process_state(s, p, as.POSIXct("2020-06-01"))
-  expect_equal(length(r$person@health_record@encounters), 1L)
-  expect_equal(r$person@health_record@encounters[[1]]@encounter_class, "ambulatory")
-  expect_false(is.null(r$person@attributes[["__current_encounter__"]]))
+  expect_equal(length(r$person@.record$encounters), 1L)
+  expect_equal(r$person@.record$encounters[[1]]$encounter_class, "ambulatory")
+  expect_false(is.null(r$person@.record[["__current_encounter_env__"]]))
   expect_equal(r$next_state, "Next")
 })
 
 test_that("EncounterEnd sets end_time on current encounter", {
   p <- make_person_clinical()
-  enc <- Encounter(id = "enc-001", time = as.POSIXct("2020-06-01"),
-                   codes = list(), encounter_class = "ambulatory")
-  p@health_record@encounters <- list(enc)
-  p@attributes[["__current_encounter__"]] <- "enc-001"
+  enc_env <- new.env(parent = emptyenv())
+  enc_env$id <- "enc-001"
+  enc_env$time <- as.POSIXct("2020-06-01")
+  enc_env$end_time <- NULL
+  enc_env$codes <- list()
+  enc_env$encounter_class <- "ambulatory"
+  p@.record$encounters <- list(enc_env)
+  p@.record[["__current_encounter_env__"]] <- enc_env
 
   s <- GMFState(
     name = "EndVisit", type = "EncounterEnd",
@@ -42,8 +47,8 @@ test_that("EncounterEnd sets end_time on current encounter", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, p, as.POSIXct("2020-06-01"))
-  expect_false(is.null(r$person@health_record@encounters[[1]]@end_time))
-  expect_null(r$person@attributes[["__current_encounter__"]])
+  expect_false(is.null(r$person@.record$encounters[[1]]$end_time))
+  expect_null(r$person@.record[["__current_encounter_env__"]])
 })
 
 # --- ConditionOnset / ConditionEnd ---
@@ -59,18 +64,22 @@ test_that("ConditionOnset adds active condition", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), as.POSIXct("2020-01-01"))
-  conds <- r$person@health_record@conditions
+  conds <- r$person@.record$conditions
   expect_equal(length(conds), 1L)
-  expect_true(conds[[1]]@is_active)
-  expect_equal(conds[[1]]@codes[[1]]@code, "44054006")
+  expect_true(conds[[1]]$is_active)
+  expect_equal(conds[[1]]$codes[[1]][["code"]], "44054006")
 })
 
 test_that("ConditionEnd deactivates the matching condition", {
   p <- make_person_clinical()
-  dm_code <- Code(system = "SNOMED-CT", code = "44054006", display = "T2DM")
-  cond_entry <- Condition(id = "c1", time = as.POSIXct("2019-01-01"), codes = list(dm_code))
-  p@health_record@conditions <- list(cond_entry)
-  p@attributes[["__condition_ref__DiabetesOnset"]] <- "c1"
+  cond_env <- new.env(parent = emptyenv())
+  cond_env$id <- "c1"
+  cond_env$time <- as.POSIXct("2019-01-01")
+  cond_env$codes <- list(list(system = "SNOMED-CT", code = "44054006", display = "T2DM"))
+  cond_env$is_active <- TRUE
+  cond_env$end_time <- NULL
+  p@.record$conditions <- list(cond_env)
+  p@.record[["__condition_env__DiabetesOnset"]] <- cond_env
 
   s <- GMFState(
     name = "DiabetesEnd", type = "ConditionEnd",
@@ -79,8 +88,8 @@ test_that("ConditionEnd deactivates the matching condition", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, p, as.POSIXct("2022-01-01"))
-  expect_false(r$person@health_record@conditions[[1]]@is_active)
-  expect_false(is.null(r$person@health_record@conditions[[1]]@end_time))
+  expect_false(r$person@.record$conditions[[1]]$is_active)
+  expect_false(is.null(r$person@.record$conditions[[1]]$end_time))
 })
 
 # --- MedicationOrder / MedicationEnd ---
@@ -96,18 +105,22 @@ test_that("MedicationOrder adds active medication", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), as.POSIXct("2020-03-01"))
-  meds <- r$person@health_record@medications
+  meds <- r$person@.record$medications
   expect_equal(length(meds), 1L)
-  expect_true(meds[[1]]@is_active)
-  expect_equal(meds[[1]]@codes[[1]]@code, "860975")
+  expect_true(meds[[1]]$is_active)
+  expect_equal(meds[[1]]$codes[[1]][["code"]], "860975")
 })
 
 test_that("MedicationEnd deactivates the matching medication", {
   p <- make_person_clinical()
-  med_code <- Code(system = "RxNorm", code = "860975", display = "Metformin")
-  med <- Medication(id = "m1", time = as.POSIXct("2020-01-01"), codes = list(med_code))
-  p@health_record@medications <- list(med)
-  p@attributes[["__medication_ref__PrescribeMetformin"]] <- "m1"
+  med_env <- new.env(parent = emptyenv())
+  med_env$id <- "m1"
+  med_env$time <- as.POSIXct("2020-01-01")
+  med_env$codes <- list(list(system = "RxNorm", code = "860975", display = "Metformin"))
+  med_env$is_active <- TRUE
+  med_env$end_time <- NULL
+  p@.record$medications <- list(med_env)
+  p@.record[["__medication_env__PrescribeMetformin"]] <- med_env
 
   s <- GMFState(
     name = "StopMetformin", type = "MedicationEnd",
@@ -116,8 +129,8 @@ test_that("MedicationEnd deactivates the matching medication", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, p, as.POSIXct("2021-01-01"))
-  expect_false(r$person@health_record@medications[[1]]@is_active)
-  expect_false(is.null(r$person@health_record@medications[[1]]@end_time))
+  expect_false(r$person@.record$medications[[1]]$is_active)
+  expect_false(is.null(r$person@.record$medications[[1]]$end_time))
 })
 
 # --- Procedure ---
@@ -133,8 +146,8 @@ test_that("Procedure adds a procedure to health record", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), as.POSIXct("2020-05-01"))
-  expect_equal(length(r$person@health_record@procedures), 1L)
-  expect_equal(r$person@health_record@procedures[[1]]@codes[[1]]@code, "80146002")
+  expect_equal(length(r$person@.record$procedures), 1L)
+  expect_equal(r$person@.record$procedures[[1]]$codes[[1]][["code"]], "80146002")
 })
 
 # --- Vaccine ---
@@ -150,7 +163,7 @@ test_that("Vaccine adds an immunization to health record", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), as.POSIXct("2020-10-01"))
-  expect_equal(length(r$person@health_record@immunizations), 1L)
+  expect_equal(length(r$person@.record$immunizations), 1L)
 })
 
 # --- AllergyOnset ---
@@ -166,28 +179,30 @@ test_that("AllergyOnset adds an allergy to health record", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), as.POSIXct("2020-01-01"))
-  expect_equal(length(r$person@health_record@allergies), 1L)
-  expect_true(r$person@health_record@allergies[[1]]@is_active)
+  expect_equal(length(r$person@.record$allergies), 1L)
+  expect_true(r$person@.record$allergies[[1]]$is_active)
 })
 
-test_that("AllergyEnd deactivates active allergies", {
+test_that("AllergyEnd deactivates the matching allergy", {
   p <- make_person_clinical()
-  allergy <- AllergyIntolerance(
-    id = "a1",
-    time = as.POSIXct("2020-01-01"),
-    codes = list(Code(system = "RxNorm", code = "7980", display = "Penicillin")),
-    is_active = TRUE
-  )
-  p@health_record@allergies <- list(allergy)
+  alg_env <- new.env(parent = emptyenv())
+  alg_env$id <- "a1"
+  alg_env$time <- as.POSIXct("2020-01-01")
+  alg_env$codes <- list(list(system = "RxNorm", code = "7980", display = "Penicillin"))
+  alg_env$is_active <- TRUE
+  alg_env$end_time <- NULL
+  p@.record$allergies <- list(alg_env)
+  p@.record[["__allergy_env__PenicillinAllergy"]] <- alg_env
 
   s <- GMFState(
     name = "PenicillinAllergyEnd", type = "AllergyEnd",
-    definition = list(type = "AllergyEnd", direct_transition = "Next"),
+    definition = list(type = "AllergyEnd", allergy_onset = "PenicillinAllergy",
+                      direct_transition = "Next"),
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, p, as.POSIXct("2025-01-01"))
-  expect_false(r$person@health_record@allergies[[1]]@is_active)
-  expect_false(is.null(r$person@health_record@allergies[[1]]@end_time))
+  expect_false(r$person@.record$allergies[[1]]$is_active)
+  expect_false(is.null(r$person@.record$allergies[[1]]$end_time))
 })
 
 # --- CarePlan ---
@@ -204,22 +219,22 @@ test_that("CarePlanStart adds active care plan", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), as.POSIXct("2020-01-01"))
-  expect_equal(length(r$person@health_record@careplans), 1L)
-  expect_true(r$person@health_record@careplans[[1]]@is_active)
-  expect_equal(length(r$person@health_record@careplans[[1]]@activities), 1L)
+  expect_equal(length(r$person@.record$careplans), 1L)
+  expect_true(r$person@.record$careplans[[1]]$is_active)
+  expect_equal(length(r$person@.record$careplans[[1]]$activities), 1L)
 })
 
 test_that("CarePlanEnd deactivates the matching care plan", {
   p <- make_person_clinical()
-  cp <- CarePlan(
-    id = "cp1",
-    time = as.POSIXct("2020-01-01"),
-    codes = list(Code(system = "SNOMED-CT", code = "408290009", display = "Diabetes care")),
-    activities = list(),
-    is_active = TRUE
-  )
-  p@health_record@careplans <- list(cp)
-  p@attributes[["__careplan_ref__DiabetesCare"]] <- "cp1"
+  cp_env <- new.env(parent = emptyenv())
+  cp_env$id <- "cp1"
+  cp_env$time <- as.POSIXct("2020-01-01")
+  cp_env$codes <- list(list(system = "SNOMED-CT", code = "408290009", display = "Diabetes care"))
+  cp_env$activities <- list()
+  cp_env$is_active <- TRUE
+  cp_env$end_time <- NULL
+  p@.record$careplans <- list(cp_env)
+  p@.record[["__careplan_env__DiabetesCare"]] <- cp_env
 
   s <- GMFState(
     name = "DiabetesCareEnd", type = "CarePlanEnd",
@@ -227,8 +242,8 @@ test_that("CarePlanEnd deactivates the matching care plan", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, p, as.POSIXct("2022-01-01"))
-  expect_false(r$person@health_record@careplans[[1]]@is_active)
-  expect_false(is.null(r$person@health_record@careplans[[1]]@end_time))
+  expect_false(r$person@.record$careplans[[1]]$is_active)
+  expect_false(is.null(r$person@.record$careplans[[1]]$end_time))
 })
 
 # --- Observation ---
@@ -248,11 +263,11 @@ test_that("Observation adds observation with numeric value from range", {
   )
   p <- make_person_clinical()
   r <- process_state(s, p, as.POSIXct("2020-01-15"))
-  obs <- r$person@health_record@observations
+  obs <- r$person@.record$observations
   expect_equal(length(obs), 1L)
-  expect_gte(as.numeric(obs[[1]]@value), 6.5)
-  expect_lte(as.numeric(obs[[1]]@value), 8.0)
-  expect_equal(obs[[1]]@unit, "%")
+  expect_gte(as.numeric(obs[[1]]$value), 6.5)
+  expect_lte(as.numeric(obs[[1]]$value), 8.0)
+  expect_equal(obs[[1]]$unit, "%")
 })
 
 test_that("Observation with exact value", {
@@ -268,7 +283,7 @@ test_that("Observation with exact value", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), Sys.time())
-  expect_equal(as.numeric(r$person@health_record@observations[[1]]@value), 75)
+  expect_equal(as.numeric(r$person@.record$observations[[1]]$value), 75)
 })
 
 # --- VitalSign ---
@@ -311,7 +326,7 @@ test_that("Symptom updates symptom map on person (clamped to 0-100)", {
 
 # --- ImagingStudy ---
 
-test_that("ImagingStudy adds to health_record@imaging", {
+test_that("ImagingStudy adds to .record$imaging", {
   s <- GMFState(
     name = "ChestXray", type = "ImagingStudy",
     definition = list(
@@ -323,5 +338,5 @@ test_that("ImagingStudy adds to health_record@imaging", {
     transition = parse_transition(list(direct_transition = "Next"))
   )
   r <- process_state(s, make_person_clinical(), Sys.time())
-  expect_equal(length(r$person@health_record@imaging), 1L)
+  expect_equal(length(r$person@.record$imaging), 1L)
 })

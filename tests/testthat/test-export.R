@@ -12,17 +12,22 @@ make_test_patient <- function(seed = 1L) {
   p@attributes[["state"]]      <- "Massachusetts"
   p@attributes[["city"]]       <- "Boston"
 
-  enc  <- Encounter(id = "enc-001", time = as.POSIXct("2020-01-01"),
-                    codes = list(Code("SNOMED-CT", "185349003", "Wellness")),
-                    encounter_class = "ambulatory")
-  cond <- Condition(id = "cond-001", time = as.POSIXct("2019-01-01"),
-                    codes = list(Code("SNOMED-CT", "44054006", "T2DM")))
-  med  <- Medication(id = "med-001", time = as.POSIXct("2019-03-01"),
-                     codes = list(Code("RxNorm", "860975", "Metformin")))
-
-  p@health_record@encounters  <- list(enc)
-  p@health_record@conditions  <- list(cond)
-  p@health_record@medications <- list(med)
+  rec <- p@.record
+  rec$encounters[[1]] <- list(
+    id = "enc-001", time = as.POSIXct("2020-01-01"), end_time = NULL,
+    codes = list(list(system = "SNOMED-CT", code = "185349003", display = "Wellness")),
+    encounter_class = "ambulatory"
+  )
+  rec$conditions[[1]] <- list(
+    id = "cond-001", time = as.POSIXct("2019-01-01"), end_time = NULL,
+    codes = list(list(system = "SNOMED-CT", code = "44054006", display = "T2DM")),
+    is_active = TRUE
+  )
+  rec$medications[[1]] <- list(
+    id = "med-001", time = as.POSIXct("2019-03-01"), end_time = NULL,
+    codes = list(list(system = "RxNorm", code = "860975", display = "Metformin")),
+    is_active = TRUE
+  )
   p
 }
 

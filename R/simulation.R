@@ -2,22 +2,61 @@
 
 TIMESTEP_SECS <- 7L * 86400L  # 1 week in seconds
 
+#' Simulate one patient's life through all GMF modules
+#'
+#' Advances `person` through `modules` in weekly timesteps from their birth
+#' date to `end_date`, mutating the patient's `.record` environment in-place.
+#'
+#' @param person A [Person] object with `birth_date` in `@@attributes`.
+#' @param modules Named list of `Module` objects, as returned by
+#'   [load_all_modules()].
+#' @param end_date POSIXct. Simulation end date. Default `Sys.time()`.
+#'
+#' @return The updated `person` object. Clinical events (encounters,
+#'   conditions, medications, etc.) are stored in `person@@.record`.
+#'
+#' @details
+#' **Hot-path design**: `.REC$e` is set to `person@@.record` once per call so
+#' that state handlers access clinical data without S7 dispatch. `rec$.t_num`
+#' caches `as.numeric(current_time)` per timestep. Terminal modules are
+#' skipped via a pre-check before calling `advance_module()`.
+#'
+#' The weekly timestep (`TIMESTEP_SECS = 7 * 86400`) is the same as
+#' py-synthea's default.
+#'
+#' @seealso [generate_population()], [advance_module()]
+#' @export
 simulate_life <- function(person, modules, end_date = Sys.time()) {
-  current_time <- person@attributes[["birth_date"]] %||% end_date
+  birth <- person@attributes[["birth_date"]] %||% end_date
+  t_cur <- as.numeric(birth)
+  t_end <- as.numeric(end_date)
 
-  while (current_time <= end_date && person@is_alive) {
+  # Cache .record and is_alive flag in .REC once per patient to avoid S7 dispatch
+  # on every state handler and every loop iteration.
+  rec <- person@.record
+  .REC$e <- rec
+  rec$.is_alive <- person@is_alive
+
+  while (t_cur <= t_end && rec$.is_alive) {
+    current_time <- .POSIXct(t_cur)
+    rec$.t_num   <- t_cur
     for (module in modules) {
+      if (identical(rec[[module$state_key]], "__terminal__")) next
       person <- advance_module(person, module, current_time, modules)
-      if (!person@is_alive) break
+      if (!rec$.is_alive) break
     }
-    current_time <- current_time + TIMESTEP_SECS
+    t_cur <- t_cur + TIMESTEP_SECS
   }
+  if (!rec$.is_alive) person@is_alive <- FALSE
   person
 }
 
 advance_module <- function(person, module, time, all_modules = list()) {
-  state_key    <- paste0("__module_state__", module@name)
-  current_name <- person@attributes[[state_key]] %||% "Initial"
+  mod_states   <- module$states
+  state_key    <- module$state_key
+  rec          <- .REC$e  # constant for this patient's lifetime — never re-read
+  current_name <- rec[[state_key]]
+  if (is.null(current_name)) current_name <- "Initial"
 
   if (identical(current_name, "__terminal__")) return(person)
 
@@ -26,24 +65,29 @@ advance_module <- function(person, module, time, all_modules = list()) {
 
   while (iter < max_iter) {
     iter  <- iter + 1L
-    state <- module@states[[current_name]]
+    state <- mod_states[[current_name]]
     if (is.null(state)) break
 
-    result      <- process_state(state, person, time)
-    person      <- result$person
-    next_name   <- result$next_state
+    # Wellness bypass: same-timestep duplicate guard without full call stack
+    if (state[["type"]] == "Encounter" && state[["is_wellness"]]) {
+      wt <- rec[[state[["wellness_key"]]]]
+      if (!is.null(wt) && wt >= rec$.t_num) break
+    }
+
+    result    <- process_state(state, person, time)
+    person    <- result[[1L]]
+    next_name <- result[[2L]]
 
     # Terminal
     if (is.null(next_name)) {
-      person@attributes[[state_key]] <- "__terminal__"
+      rec[[state_key]] <- "__terminal__"
       break
     }
 
     # CallSubmodule: run inline before advancing
-    call_key <- paste0("__call_submodule__", state@name)
-    sub_name <- person@attributes[[call_key]]
+    sub_name <- rec[[state[["call_key"]]]]
     if (!is.null(sub_name) && !is.null(all_modules[[sub_name]])) {
-      person@attributes[[call_key]] <- NULL
+      rec[[state[["call_key"]]]] <- NULL
       person <- advance_module(person, all_modules[[sub_name]], time, all_modules)
     }
 
@@ -51,17 +95,10 @@ advance_module <- function(person, module, time, all_modules = list()) {
     if (next_name == current_name) break
 
     current_name <- next_name
-    person@attributes[[state_key]] <- current_name
-
-    # If newly entered state is Terminal, process and stop
-    next_state_obj <- module@states[[current_name]]
-    if (!is.null(next_state_obj) && next_state_obj@type == "Terminal") {
-      person@attributes[[state_key]] <- "__terminal__"
-      break
-    }
+    rec[[state_key]] <- current_name
 
     # Stop if person died mid-module
-    if (!person@is_alive) break
+    if (!rec$.is_alive) break
   }
 
   person

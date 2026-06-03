@@ -12,6 +12,7 @@ make_person <- function(gender = "M", birth_year = 1980, race = "white",
     ),
     extra_attrs
   )
+  .REC$e <- p@.record
   p
 }
 
@@ -89,9 +90,14 @@ test_that("Attribute condition with == operator", {
 
 test_that("Active Condition checks health record", {
   p <- make_person()
-  dm_code <- Code(system = "SNOMED-CT", code = "44054006", display = "T2DM")
-  cond_entry <- Condition(id = "c1", time = Sys.time(), codes = list(dm_code))
-  p@health_record@conditions <- list(cond_entry)
+  cond_env <- new.env(parent = emptyenv())
+  cond_env$id <- "c1"
+  cond_env$time <- Sys.time()
+  cond_env$codes <- list(list(system = "SNOMED-CT", code = "44054006", display = "T2DM"))
+  cond_env$is_active <- TRUE
+  cond_env$end_time <- NULL
+  p@.record$conditions <- list(cond_env)
+  p@.record$.active_conditions[["44054006"]] <- cond_env
 
   expect_true(evaluate_condition(
     list(condition_type = "Active Condition",
