@@ -72,16 +72,20 @@ method(process_state, GMFState) <- function(state, person, time) {
 .resolve_duration <- function(def) {
   unit_secs <- c(years = 365.25 * 86400, months = 30.44 * 86400,
                  weeks = 7 * 86400, days = 86400, hours = 3600)
+  .unit_lookup <- function(unit) {
+    v <- unit_secs[unit]
+    if (is.na(v)) 86400 else v
+  }
   if (!is.null(def[["exact"]])) {
     qty  <- as.numeric(def[["exact"]][["quantity"]])
     unit <- def[["exact"]][["unit"]] %||% "days"
-    return(qty * (unit_secs[[unit]] %||% 86400))
+    return(qty * .unit_lookup(unit))
   }
   if (!is.null(def[["range"]])) {
     low  <- as.numeric(def[["range"]][["low"]])
     high <- as.numeric(def[["range"]][["high"]])
     unit <- def[["range"]][["unit"]] %||% "days"
-    return(runif(1, low, high) * (unit_secs[[unit]] %||% 86400))
+    return(runif(1, low, high) * .unit_lookup(unit))
   }
   0
 }

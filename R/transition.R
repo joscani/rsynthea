@@ -42,6 +42,7 @@ resolve_transition <- function(transition, person, time) {
 }
 
 .resolve_distributed <- function(entries, person) {
+  if (length(entries) == 0) return(NULL)
   weights <- vapply(entries, function(e) .resolve_weight(e[["distribution"]], person), numeric(1))
   total <- sum(weights)
   if (total <= 0) return(entries[[length(entries)]][["transition"]])
@@ -77,6 +78,7 @@ resolve_transition <- function(transition, person, time) {
 }
 
 .resolve_lookup <- function(entries, person) {
+  if (length(entries) == 0) return(NULL)
   weights <- vapply(entries,
     function(e) as.numeric(e[["default_probability"]] %||% 0), numeric(1))
   total <- sum(weights)

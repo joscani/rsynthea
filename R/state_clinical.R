@@ -4,9 +4,9 @@
 .parse_codes <- function(raw_codes) {
   lapply(raw_codes %||% list(), function(c) {
     Code(
-      system  = c[["system"]]  %||% "",
-      code    = c[["code"]]    %||% "",
-      display = c[["display"]] %||% ""
+      system  = as.character(c[["system"]]  %||% ""),
+      code    = as.character(c[["code"]]    %||% ""),
+      display = as.character(c[["display"]] %||% "")
     )
   })
 }
