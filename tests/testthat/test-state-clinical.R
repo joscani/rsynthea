@@ -286,6 +286,113 @@ test_that("Observation with exact value", {
   expect_equal(as.numeric(r$person@.record$observations[[1]]$value), 75)
 })
 
+test_that("Observation with textual exact quantity keeps text value", {
+  s <- GMFState(
+    name = "RecordNarrative", type = "Observation",
+    definition = list(
+      type = "Observation",
+      unit = "{#}",
+      codes = list(list(system = "LOINC", code = "29554-3", display = "Procedure Narrative")),
+      exact = list(quantity = "CABG Grafts: 1"),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  expect_equal(r$person@.record$observations[[1]]$value, "CABG Grafts: 1")
+})
+
+test_that("Observation updates latest and by-code indices", {
+  s1 <- GMFState(
+    name = "HemoglobinLow", type = "Observation",
+    definition = list(
+      type = "Observation",
+      unit = "g/dL",
+      codes = list(list(system = "LOINC", code = "718-7", display = "Hemoglobin")),
+      exact = list(quantity = 10),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  s2 <- GMFState(
+    name = "HemoglobinNormal", type = "Observation",
+    definition = list(
+      type = "Observation",
+      unit = "g/dL",
+      codes = list(list(system = "LOINC", code = "718-7", display = "Hemoglobin")),
+      exact = list(quantity = 12),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  p <- process_state(s1, p, as.POSIXct("2020-01-01"))$person
+  p <- process_state(s2, p, as.POSIXct("2020-02-01"))$person
+
+  rec <- p@.record
+  expect_equal(rec$.latest_observations[["718-7"]]$value, 12)
+  expect_equal(length(rec$.observations_by_code[["718-7"]]), 2L)
+  expect_equal(rec$.observations_by_code[["718-7"]][[1L]]$value, 10)
+})
+
+test_that("Observation condition uses latest indexed observation", {
+  s1 <- GMFState(
+    name = "HemoglobinLow", type = "Observation",
+    definition = list(
+      type = "Observation",
+      codes = list(list(system = "LOINC", code = "718-7", display = "Hemoglobin")),
+      exact = list(quantity = 10),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  s2 <- GMFState(
+    name = "HemoglobinHigh", type = "Observation",
+    definition = list(
+      type = "Observation",
+      codes = list(list(system = "LOINC", code = "718-7", display = "Hemoglobin")),
+      exact = list(quantity = 13),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  p <- process_state(s1, p, as.POSIXct("2020-01-01"))$person
+  p <- process_state(s2, p, as.POSIXct("2020-02-01"))$person
+
+  expect_true(evaluate_condition(
+    list(condition_type = "Observation",
+         codes = list(list(system = "LOINC", code = "718-7", display = "Hemoglobin")),
+         operator = ">=", value = 12),
+    p, Sys.time()
+  ))
+})
+
+test_that("MultiObservation updates by-code index for each sub-observation", {
+  s <- GMFState(
+    name = "BloodPressure", type = "MultiObservation",
+    definition = list(
+      type = "MultiObservation",
+      observations = list(
+        list(unit = "mmHg",
+             codes = list(list(system = "LOINC", code = "8480-6", display = "Systolic")),
+             exact = list(quantity = 120)),
+        list(unit = "mmHg",
+             codes = list(list(system = "LOINC", code = "8462-4", display = "Diastolic")),
+             exact = list(quantity = 80))
+      ),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  rec <- r$person@.record
+
+  expect_equal(rec$.latest_observations[["8480-6"]]$value, 120)
+  expect_equal(rec$.latest_observations[["8462-4"]]$value, 80)
+  expect_equal(length(rec$.observations_by_code[["8480-6"]]), 1L)
+})
+
 # --- VitalSign ---
 
 test_that("VitalSign updates vital_signs on person", {
@@ -339,4 +446,40 @@ test_that("ImagingStudy adds to .record$imaging", {
   )
   r <- process_state(s, make_person_clinical(), Sys.time())
   expect_equal(length(r$person@.record$imaging), 1L)
+})
+
+test_that("Device with singular code adds coded device", {
+  s <- GMFState(
+    name = "Wheelchair", type = "Device",
+    definition = list(
+      type = "Device",
+      code = list(system = "SNOMED-CT", code = "228869008", display = "Manual wheelchair"),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  expect_equal(length(r$person@.record$devices), 1L)
+  expect_equal(r$person@.record$devices[[1]]$codes[[1]][["code"]], "228869008")
+})
+
+test_that("SupplyList adds one record per supply", {
+  s <- GMFState(
+    name = "BloodSupplies", type = "SupplyList",
+    definition = list(
+      type = "SupplyList",
+      supplies = list(
+        list(quantity = 2, code = list(system = "SNOMED-CT", code = "431069006",
+                                      display = "Packed red blood cells")),
+        list(quantity = 1, code = list(system = "SNOMED-CT", code = "126261006",
+                                      display = "Human platelets"))
+      ),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  r <- process_state(s, make_person_clinical(), Sys.time())
+  expect_equal(length(r$person@.record$supplies), 2L)
+  expect_equal(r$person@.record$supplies[[1]]$quantity, 2)
+  expect_equal(r$person@.record$supplies[[2]]$codes[[1]][["code"]], "126261006")
 })

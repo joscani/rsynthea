@@ -84,7 +84,7 @@ process_state <- function(state, person, time) {
     low  <- as.numeric(def[["range"]][["low"]])
     high <- as.numeric(def[["range"]][["high"]])
     unit <- def[["range"]][["unit"]] %||% "days"
-    return(runif(1, low, high) * .unit_lookup(unit))
+    return(stats::runif(1, low, high) * .unit_lookup(unit))
   }
   0
 }

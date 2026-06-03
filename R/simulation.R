@@ -7,7 +7,7 @@ TIMESTEP_SECS <- 7L * 86400L  # 1 week in seconds
 #' Advances `person` through `modules` in weekly timesteps from their birth
 #' date to `end_date`, mutating the patient's `.record` environment in-place.
 #'
-#' @param person A [Person] object with `birth_date` in `@@attributes`.
+#' @param person A `Person` object with `birth_date` in `@@attributes`.
 #' @param modules Named list of `Module` objects, as returned by
 #'   [load_all_modules()].
 #' @param end_date POSIXct. Simulation end date. Default `Sys.time()`.
@@ -24,7 +24,7 @@ TIMESTEP_SECS <- 7L * 86400L  # 1 week in seconds
 #' The weekly timestep (`TIMESTEP_SECS = 7 * 86400`) is the same as
 #' py-synthea's default.
 #'
-#' @seealso [generate_population()], [advance_module()]
+#' @seealso [generate_population()], `advance_module()`
 #' @export
 simulate_life <- function(person, modules, end_date = Sys.time()) {
   birth <- person@attributes[["birth_date"]] %||% end_date

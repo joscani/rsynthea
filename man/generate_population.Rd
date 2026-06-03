@@ -42,7 +42,7 @@ loaded from \verb{inst/extdata/modules/} via \code{\link[=load_all_modules]{load
 \code{parallel::mclapply} (fork-based; Unix/macOS only). Default \code{1L}.}
 }
 \value{
-A list of \code{n} \link{Person} objects with populated \code{.record} environments
+A list of \code{n} \code{Person} objects with populated \code{.record} environments
 containing encounters, conditions, medications, etc.
 }
 \description{

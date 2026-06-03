@@ -1,5 +1,5 @@
 # Claude Code local (no se comparte)
-.claude/settings.local.json
+.claude/
 
 # Entornos
 .venv/

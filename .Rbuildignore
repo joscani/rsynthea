@@ -1,2 +1,10 @@
 ^renv$
 ^renv\.lock$
+^AGENTS\.md$
+^CLAUDE\.md$
+^docs$
+^scripts$
+^\.claude$
+^inst/extdata/modules/\.gitkeep$
+^inst/extdata/resources/\.gitkeep$
+^tests/testthat/\.gitkeep$

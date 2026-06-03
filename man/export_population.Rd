@@ -7,7 +7,7 @@
 export_population(patients, output_dir = NULL)
 }
 \arguments{
-\item{patients}{List of \link{Person} objects, as returned by
+\item{patients}{List of \code{Person} objects, as returned by
 \code{\link[=generate_population]{generate_population()}}.}
 
 \item{output_dir}{Character or \code{NULL}. If provided, each tibble is written
@@ -26,10 +26,15 @@ A named list of tibbles:
 \item{\code{immunizations}}{Vaccines administered.}
 \item{\code{allergies}}{Allergy records.}
 \item{\code{careplans}}{Care plan records.}
+\item{\code{imaging}}{Imaging studies.}
+\item{\code{devices}}{Implanted or assigned devices.}
+\item{\code{reports}}{Diagnostic reports.}
+\item{\code{report_observations}}{Observations embedded in diagnostic reports.}
+\item{\code{supplies}}{Supplies used during procedures or care episodes.}
 }
 }
 \description{
-Converts a list of simulated \link{Person} objects into a named list of tibbles
+Converts a list of simulated \code{Person} objects into a named list of tibbles
 (one per clinical domain), optionally writing them as CSV files.
 }
 \examples{

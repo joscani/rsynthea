@@ -121,12 +121,16 @@ evaluate_condition <- function(cond, person, time) {
 .cond_observation <- function(cond, person) {
   target_code <- (cond[["codes"]] %||% list())[[1]]
   if (is.null(target_code)) return(FALSE)
-  obs_list <- .REC$e$observations
-  matching <- Filter(function(o) {
-    any(vapply(o$codes, function(c) c[["code"]] == target_code[["code"]], logical(1)))
-  }, obs_list)
-  if (length(matching) == 0) return(FALSE)
-  latest <- matching[[length(matching)]]
+  target_code_value <- target_code[["code"]]
+  latest <- .REC$e$.latest_observations[[target_code_value]]
+  if (is.null(latest)) {
+    obs_list <- .REC$e$observations
+    matching <- Filter(function(o) {
+      any(vapply(o$codes, function(c) c[["code"]] == target_code_value, logical(1)))
+    }, obs_list)
+    if (length(matching) == 0) return(FALSE)
+    latest <- matching[[length(matching)]]
+  }
   if (!is.null(cond[["value"]])) {
     .compare(latest$value, cond[["operator"]] %||% "==", cond[["value"]])
   } else TRUE

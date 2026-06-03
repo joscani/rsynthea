@@ -2,10 +2,10 @@
 
 #' Export a simulated population to tidy tibbles
 #'
-#' Converts a list of simulated [Person] objects into a named list of tibbles
+#' Converts a list of simulated `Person` objects into a named list of tibbles
 #' (one per clinical domain), optionally writing them as CSV files.
 #'
-#' @param patients List of [Person] objects, as returned by
+#' @param patients List of `Person` objects, as returned by
 #'   [generate_population()].
 #' @param output_dir Character or `NULL`. If provided, each tibble is written
 #'   to `<output_dir>/<domain>.csv`. The directory is created if it does not
@@ -22,6 +22,11 @@
 #'   \item{`immunizations`}{Vaccines administered.}
 #'   \item{`allergies`}{Allergy records.}
 #'   \item{`careplans`}{Care plan records.}
+#'   \item{`imaging`}{Imaging studies.}
+#'   \item{`devices`}{Implanted or assigned devices.}
+#'   \item{`reports`}{Diagnostic reports.}
+#'   \item{`report_observations`}{Observations embedded in diagnostic reports.}
+#'   \item{`supplies`}{Supplies used during procedures or care episodes.}
 #' }
 #'
 #' @examples
@@ -47,7 +52,12 @@ export_population <- function(patients, output_dir = NULL) {
     observations  = .observations_tbl(patients),
     immunizations = .immunizations_tbl(patients),
     allergies     = .allergies_tbl(patients),
-    careplans     = .careplans_tbl(patients)
+    careplans     = .careplans_tbl(patients),
+    imaging       = .imaging_tbl(patients),
+    devices       = .devices_tbl(patients),
+    reports       = .reports_tbl(patients),
+    report_observations = .report_observations_tbl(patients),
+    supplies      = .supplies_tbl(patients)
   )
   if (!is.null(output_dir)) {
     dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
@@ -221,6 +231,98 @@ export_population <- function(patients, output_dir = NULL) {
         is_active   = cp$is_active,
         code        = .first_code(cp$codes),
         description = .first_disp(cp$codes)
+      )
+    }))
+  })
+}
+
+.imaging_tbl <- function(patients) {
+  .flatten_tbl(patients, function(p) {
+    if (length(p@.record$imaging) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$imaging, function(i) {
+      tibble::tibble(
+        id          = i$id,
+        patient_id  = p@id,
+        time        = i$time,
+        code        = .first_code(i$codes),
+        code_system = .first_sys(i$codes),
+        description = .first_disp(i$codes),
+        series_count = length(i$series %||% list())
+      )
+    }))
+  })
+}
+
+.devices_tbl <- function(patients) {
+  .flatten_tbl(patients, function(p) {
+    if (length(p@.record$devices) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$devices, function(d) {
+      tibble::tibble(
+        id          = d$id,
+        patient_id  = p@id,
+        start_time  = d$time,
+        end_time    = d$end_time %||% NA,
+        is_active   = d$is_active,
+        code        = .first_code(d$codes),
+        code_system = .first_sys(d$codes),
+        description = .first_disp(d$codes)
+      )
+    }))
+  })
+}
+
+.reports_tbl <- function(patients) {
+  .flatten_tbl(patients, function(p) {
+    if (length(p@.record$reports) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$reports, function(r) {
+      tibble::tibble(
+        id          = r$id,
+        patient_id  = p@id,
+        time        = r$time,
+        code        = .first_code(r$codes),
+        code_system = .first_sys(r$codes),
+        description = .first_disp(r$codes),
+        observation_count = length(r$observations %||% list())
+      )
+    }))
+  })
+}
+
+.report_observations_tbl <- function(patients) {
+  .flatten_tbl(patients, function(p) {
+    if (length(p@.record$reports) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$reports, function(r) {
+      observations <- r$observations %||% list()
+      if (length(observations) == 0) return(tibble::tibble())
+      dplyr::bind_rows(lapply(observations, function(o) {
+        tibble::tibble(
+          id          = o$id,
+          report_id   = r$id,
+          patient_id  = p@id,
+          time        = o$time,
+          value       = as.character(o$value %||% NA),
+          unit        = o$unit %||% NA_character_,
+          code        = .first_code(o$codes),
+          code_system = .first_sys(o$codes),
+          description = .first_disp(o$codes)
+        )
+      }))
+    }))
+  })
+}
+
+.supplies_tbl <- function(patients) {
+  .flatten_tbl(patients, function(p) {
+    if (length(p@.record$supplies) == 0) return(tibble::tibble())
+    dplyr::bind_rows(lapply(p@.record$supplies, function(s) {
+      tibble::tibble(
+        id          = s$id,
+        patient_id  = p@id,
+        time        = s$time,
+        quantity    = as.character(s$quantity %||% NA),
+        code        = .first_code(s$codes),
+        code_system = .first_sys(s$codes),
+        description = .first_disp(s$codes)
       )
     }))
   })

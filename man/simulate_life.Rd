@@ -7,7 +7,7 @@
 simulate_life(person, modules, end_date = Sys.time())
 }
 \arguments{
-\item{person}{A \link{Person} object with \code{birth_date} in \verb{@attributes}.}
+\item{person}{A \code{Person} object with \code{birth_date} in \verb{@attributes}.}
 
 \item{modules}{Named list of \code{Module} objects, as returned by
 \code{\link[=load_all_modules]{load_all_modules()}}.}
@@ -32,5 +32,5 @@ The weekly timestep (\code{TIMESTEP_SECS = 7 * 86400}) is the same as
 py-synthea's default.
 }
 \seealso{
-\code{\link[=generate_population]{generate_population()}}, \code{\link[=advance_module]{advance_module()}}
+\code{\link[=generate_population]{generate_population()}}, \code{advance_module()}
 }

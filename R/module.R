@@ -14,7 +14,7 @@ GMFState <- function(name, type, definition, transition) {
     is_wellness      = isTRUE(definition[["wellness"]]),
     wellness_key     = paste0("__wellness_time__", name),
     name             = name,
-    codes            = .parse_codes(definition[["codes"]]),
+    codes            = .parse_codes(.state_codes(definition)),
     definition       = definition,
     encounter_class  = definition[["encounter_class"]] %||% "ambulatory",
     activities       = .parse_codes(definition[["activities"]]),
@@ -50,6 +50,13 @@ GMFState <- function(name, type, definition, transition) {
     counter_amount   = as.numeric(definition[["amount"]] %||% 1),
     guard_allow      = definition[["allow"]]
   )
+}
+
+.state_codes <- function(definition) {
+  codes <- definition[["codes"]]
+  if (!is.null(codes)) return(codes)
+  code <- definition[["code"]]
+  if (!is.null(code)) list(code) else list()
 }
 
 Module <- function(name, states, submodules = list()) {

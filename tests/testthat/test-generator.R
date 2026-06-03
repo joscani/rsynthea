@@ -45,3 +45,54 @@ test_that("generate_population respects age range", {
   ages <- vapply(result, function(p) age_at(p, as.POSIXct("2020-01-01")), numeric(1))
   expect_true(all(ages >= 19 & ages <= 31))  # small tolerance for date math
 })
+
+test_that("generate_population validates scalar counts", {
+  expect_error(
+    generate_population(n = 0L, modules = list(), end_date = as.POSIXct("2000-12-31")),
+    "`n` must be a single integer"
+  )
+  expect_error(
+    generate_population(n = 1.5, modules = list(), end_date = as.POSIXct("2000-12-31")),
+    "`n` must be a single integer"
+  )
+  expect_error(
+    generate_population(n = 1L, mc.cores = 0L, modules = list(),
+                        end_date = as.POSIXct("2000-12-31")),
+    "`mc.cores` must be a single integer"
+  )
+})
+
+test_that("generate_population validates demographics inputs", {
+  expect_error(
+    generate_population(n = 1L, gender = "X", modules = list(),
+                        end_date = as.POSIXct("2000-12-31")),
+    "`gender` must be NULL"
+  )
+  expect_error(
+    generate_population(n = 1L, min_age = 40L, max_age = 20L, modules = list(),
+                        end_date = as.POSIXct("2000-12-31")),
+    "`min_age` must be less than or equal"
+  )
+  expect_error(
+    generate_population(n = 1L, min_age = -1L, modules = list(),
+                        end_date = as.POSIXct("2000-12-31")),
+    "`min_age` must be a single integer"
+  )
+})
+
+test_that("generate_population validates seed, date, and modules", {
+  expect_error(
+    generate_population(n = 2L, seed = .Machine$integer.max, modules = list(),
+                        end_date = as.POSIXct("2000-12-31")),
+    "`seed \\+ n - 1`"
+  )
+  expect_error(
+    generate_population(n = 1L, modules = list(), end_date = "2000-12-31"),
+    "`end_date` must be a single non-missing POSIXct"
+  )
+  expect_error(
+    generate_population(n = 1L, modules = list(not_a_module = list()),
+                        end_date = as.POSIXct("2000-12-31")),
+    "`modules` must contain only Module objects"
+  )
+})

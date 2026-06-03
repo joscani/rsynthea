@@ -28,15 +28,39 @@ make_test_patient <- function(seed = 1L) {
     codes = list(list(system = "RxNorm", code = "860975", display = "Metformin")),
     is_active = TRUE
   )
+  rec$imaging[[1]] <- list(
+    id = "img-001", time = as.POSIXct("2020-02-01"),
+    codes = list(list(system = "SNOMED-CT", code = "399208008", display = "Chest X-ray")),
+    series = list(list(body_site = "Chest"))
+  )
+  rec$devices[[1]] <- list(
+    id = "dev-001", time = as.POSIXct("2020-03-01"), end_time = NULL,
+    codes = list(list(system = "SNOMED-CT", code = "228869008", display = "Wheelchair")),
+    is_active = TRUE
+  )
+  rec$reports[[1]] <- list(
+    id = "rep-001", time = as.POSIXct("2020-04-01"),
+    codes = list(list(system = "LOINC", code = "58410-2", display = "CBC panel")),
+    observations = list(list(
+      id = "obs-rep-001", time = as.POSIXct("2020-04-01"), value = 10,
+      unit = "g/dL",
+      codes = list(list(system = "LOINC", code = "718-7", display = "Hemoglobin"))
+    ))
+  )
+  rec$supplies[[1]] <- list(
+    id = "sup-001", time = as.POSIXct("2020-05-01"), quantity = 2,
+    codes = list(list(system = "SNOMED-CT", code = "431069006", display = "Packed red blood cells"))
+  )
   p
 }
 
-test_that("export_population returns named list with 9 tibbles", {
+test_that("export_population returns named list with all supported tibbles", {
   patients <- list(make_test_patient(1L), make_test_patient(2L))
   result   <- export_population(patients)
   expected_names <- c("patients", "encounters", "conditions", "medications",
                       "procedures", "observations", "immunizations", "allergies",
-                      "careplans")
+                      "careplans", "imaging", "devices", "reports",
+                      "report_observations", "supplies")
   expect_named(result, expected_names)
   expect_true(all(vapply(result, tibble::is_tibble, logical(1))))
 })
@@ -60,6 +84,17 @@ test_that("conditions tibble has is_active and code columns", {
   expect_equal(nrow(result$conditions), 1L)
   expect_true(all(c("patient_id", "is_active", "code", "description") %in%
                     names(result$conditions)))
+})
+
+test_that("additional clinical domains are exported", {
+  result <- export_population(list(make_test_patient(1L)))
+  expect_equal(nrow(result$imaging), 1L)
+  expect_equal(nrow(result$devices), 1L)
+  expect_equal(nrow(result$reports), 1L)
+  expect_equal(nrow(result$report_observations), 1L)
+  expect_equal(nrow(result$supplies), 1L)
+  expect_equal(result$devices$code[[1]], "228869008")
+  expect_equal(result$supplies$quantity[[1]], "2")
 })
 
 test_that("empty health records produce zero-row tibbles with correct columns", {

@@ -19,7 +19,7 @@
 #' @param mc.cores Integer. Number of parallel workers. Values > 1 use
 #'   `parallel::mclapply` (fork-based; Unix/macOS only). Default `1L`.
 #'
-#' @return A list of `n` [Person] objects with populated `.record` environments
+#' @return A list of `n` `Person` objects with populated `.record` environments
 #'   containing encounters, conditions, medications, etc.
 #'
 #' @details
@@ -64,6 +64,9 @@ generate_population <- function(
   end_date = Sys.time(),
   mc.cores = 1L
 ) {
+  .validate_generate_population_args(n, seed, gender, min_age, max_age,
+                                     modules, end_date, mc.cores)
+
   if (is.null(modules)) {
     modules <- load_all_modules()
   }
@@ -90,4 +93,53 @@ generate_population <- function(
   } else {
     lapply(person_seeds, simulate_one)
   }
+}
+
+.validate_generate_population_args <- function(n, seed, gender, min_age, max_age,
+                                               modules, end_date, mc.cores) {
+  n <- .validate_count(n, "n", min = 1L)
+  min_age <- .validate_count(min_age, "min_age", min = 0L)
+  max_age <- .validate_count(max_age, "max_age", min = 0L)
+  .validate_count(mc.cores, "mc.cores", min = 1L)
+
+  if (min_age > max_age) {
+    stop("`min_age` must be less than or equal to `max_age`.", call. = FALSE)
+  }
+
+  if (!is.null(seed)) {
+    seed <- .validate_count(seed, "seed", min = 0L)
+    if (as.numeric(seed) + as.numeric(n) - 1 > .Machine$integer.max) {
+      stop("`seed + n - 1` must not exceed `.Machine$integer.max`.", call. = FALSE)
+    }
+  }
+
+  if (!is.null(gender) &&
+      !(is.character(gender) && length(gender) == 1L && gender %in% c("M", "F"))) {
+    stop("`gender` must be NULL, \"M\", or \"F\".", call. = FALSE)
+  }
+
+  if (!inherits(end_date, "POSIXct") || length(end_date) != 1L || is.na(end_date)) {
+    stop("`end_date` must be a single non-missing POSIXct value.", call. = FALSE)
+  }
+
+  if (!is.null(modules)) {
+    if (!is.list(modules)) {
+      stop("`modules` must be NULL or a list of Module objects.", call. = FALSE)
+    }
+    invalid <- vapply(modules, function(module) !inherits(module, "Module"), logical(1))
+    if (any(invalid)) {
+      stop("`modules` must contain only Module objects.", call. = FALSE)
+    }
+  }
+
+  invisible(TRUE)
+}
+
+.validate_count <- function(value, name, min) {
+  if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+      !is.finite(value) || value != floor(value) || value < min ||
+      value > .Machine$integer.max) {
+    stop("`", name, "` must be a single integer >= ", min, ".", call. = FALSE)
+  }
+  as.integer(value)
 }
