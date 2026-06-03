@@ -1,0 +1,21 @@
+Package: rsynthea
+Title: Synthetic Patient Population Simulator
+Version: 0.1.0
+Authors@R: person("Jose Luis", "Canadas", role = c("aut", "cre"), email = "jlcanadas@idealista.com")
+Description: Generates synthetic longitudinal electronic health records using
+    Synthea's Generic Module Framework (GMF). Port of py-synthea to R.
+License: Apache License (>= 2)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    S7,
+    jsonlite,
+    tibble,
+    dplyr,
+    yaml,
+    digest
+Suggests:
+    testthat (>= 3.0.0),
+    devtools
+Config/testthat/edition: 3
