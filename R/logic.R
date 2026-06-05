@@ -136,7 +136,7 @@ evaluate_condition <- function(cond, person, time) {
   }
   if (!is.null(cond[["value"]])) {
     .compare(latest$value, cond[["operator"]] %||% "==", cond[["value"]])
-  } else TRUE
+  } else !is.na(latest$value)
 }
 
 .cond_active_condition <- function(cond, person) {

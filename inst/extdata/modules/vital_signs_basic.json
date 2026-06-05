@@ -9,7 +9,7 @@
   "states": {
     "Initial": {
       "type": "Initial",
-      "direct_transition": "Annual_Delay"
+      "direct_transition": "Set_Blood_Glucose"
     },
     "Annual_Delay": {
       "type": "Delay",

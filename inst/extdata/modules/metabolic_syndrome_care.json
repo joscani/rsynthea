@@ -173,6 +173,25 @@
       "conditional_transition": [
         {
           "condition": {
+            "condition_type": "Not",
+            "condition": {
+              "condition_type": "Observation",
+              "codes": [
+                {
+                  "system": "LOINC",
+                  "code": "4548-4",
+                  "display": "Hemoglobin A1c/Hemoglobin.total in Blood"
+                }
+              ]
+            }
+          },
+          "remarks": [
+            "No valid HbA1c reading yet - skip severity diagnosis until next year"
+          ],
+          "transition": "End_Wellness_Encounter"
+        },
+        {
+          "condition": {
             "condition_type": "Observation",
             "codes": [
               {
@@ -527,6 +546,12 @@
               "transition": "Check_Neuropathy",
               "distribution": 0.497
             }
+          ]
+        },
+        {
+          "transition": "Check_Neuropathy",
+          "remarks": [
+            "No CKD: skip anemia check, go directly to neuropathy check"
           ]
         }
       ],

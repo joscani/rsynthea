@@ -332,6 +332,19 @@
               "transition": "Next_Reproductive_Cycle"
             }
           ]
+        },
+        {
+          "remarks": ["Default: contraceptive_type is null or unknown — treat as no contraceptive"],
+          "distributions": [
+            {
+              "distribution": 0.193,
+              "transition": "Become_Pregnant"
+            },
+            {
+              "distribution": 0.807,
+              "transition": "Next_Reproductive_Cycle"
+            }
+          ]
         }
       ]
     },

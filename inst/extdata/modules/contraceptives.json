@@ -170,20 +170,20 @@
       ],
       "distributed_transition": [
         {
-          "distribution": 0.35,
+          "distribution": 0.41,
           "transition": "Using_Oral_Contraceptive"
         },
         {
-          "distribution": 0.2,
+          "distribution": 0.21,
+          "transition": "Using_Condom_Only"
+        },
+        {
+          "distribution": 0.20,
           "transition": "Using_Withdrawal"
         },
         {
-          "distribution": 0.18,
+          "distribution": 0.09,
           "transition": "Using_No_Contraceptive"
-        },
-        {
-          "distribution": 0.18,
-          "transition": "Using_Condom_Only"
         },
         {
           "distribution": 0.03,
@@ -191,11 +191,11 @@
         },
         {
           "distribution": 0.02,
-          "transition": "Using_Ring"
+          "transition": "Using_IUD"
         },
         {
           "distribution": 0.02,
-          "transition": "Using_IUD"
+          "transition": "Using_Ring"
         },
         {
           "distribution": 0.01,
@@ -220,16 +220,16 @@
       ],
       "distributed_transition": [
         {
-          "distribution": 0.283,
-          "transition": "Using_No_Contraceptive"
-        },
-        {
-          "distribution": 0.169,
+          "distribution": 0.239,
           "transition": "Using_Oral_Contraceptive"
         },
         {
-          "distribution": 0.146,
+          "distribution": 0.226,
           "transition": "Using_Sterilization"
+        },
+        {
+          "distribution": 0.130,
+          "transition": "Using_No_Contraceptive"
         },
         {
           "distribution": 0.115,
@@ -256,7 +256,7 @@
           "transition": "Using_Ring"
         },
         {
-          "distribution": 0.01,
+          "distribution": 0.013,
           "transition": "Using_Patch"
         }
       ]
@@ -274,20 +274,16 @@
       ],
       "distributed_transition": [
         {
-          "distribution": 0.39,
+          "distribution": 0.408,
           "transition": "Using_Sterilization"
         },
         {
-          "distribution": 0.209,
+          "distribution": 0.218,
           "transition": "Using_Oral_Contraceptive"
         },
         {
           "distribution": 0.113,
           "transition": "Using_Condom_Only"
-        },
-        {
-          "distribution": 0.052,
-          "transition": "Using_No_Contraceptive"
         },
         {
           "distribution": 0.048,
@@ -306,11 +302,15 @@
           "transition": "Using_Injectable"
         },
         {
+          "distribution": 0.025,
+          "transition": "Using_No_Contraceptive"
+        },
+        {
           "distribution": 0.016,
           "transition": "Using_Ring"
         },
         {
-          "distribution": 0.01,
+          "distribution": 0.010,
           "transition": "Using_Patch"
         }
       ]
