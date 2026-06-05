@@ -54,7 +54,8 @@ docs/
 
 - **Objetivo**: Port en R de py-synthea — simula historiales clínicos sintéticos de pacientes usando módulos de estado GMF (Generic Module Framework). Salida: tibbles (patients, encounters, conditions, medications…).
 - **Stack R**: S7 para Person, entornos mutables para records clínicos, testthat para tests.
-- **Rendimiento actual**: ~4.4s/10 pacientes serial; ~1.3s con 12 cores. Baseline original: ~300s.
+- **Rendimiento actual** (medido con `devtools::load_all`, macOS M-series, 11 cores): ~17s/10 pacientes serial; ~4.3s paralelo (11 cores); ~93s/200 pacientes paralelo (11 cores). Baseline original: ~300s.
+- **Export** (200 pacientes, ~700k encounters): ~9s en memoria + ~1s fwrite. Antes: ~842s (patrón `tibble::tibble()` por fila eliminado).
 
 ## Cosas que evitar
 

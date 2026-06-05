@@ -1,0 +1,101 @@
+{
+  "name": "Vital Signs Basic",
+  "remarks": [
+    "Sets Blood Glucose (used as HbA1c % proxy) once per year based on patient diabetes status.",
+    "This module compensates for the missing dedicated vital-signs module in this bundle.",
+    "Thresholds match the metabolic_syndrome_care Diagnosis state: normal <5.7, prediabetes 5.7-6.5,",
+    "diabetic >6.5, severe >7.5, very severe >9.0."
+  ],
+  "states": {
+    "Initial": {
+      "type": "Initial",
+      "direct_transition": "Annual_Delay"
+    },
+    "Annual_Delay": {
+      "type": "Delay",
+      "exact": { "quantity": 1, "unit": "years" },
+      "direct_transition": "Set_Blood_Glucose"
+    },
+    "Set_Blood_Glucose": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "diabetes_severity",
+            "operator": ">=",
+            "value": 3
+          },
+          "transition": "Blood_Glucose_Very_Severe"
+        },
+        {
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "diabetes_severity",
+            "operator": ">=",
+            "value": 2
+          },
+          "transition": "Blood_Glucose_Severe"
+        },
+        {
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "diabetes",
+            "operator": "is not nil"
+          },
+          "transition": "Blood_Glucose_Diabetic"
+        },
+        {
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "prediabetes",
+            "operator": "is not nil"
+          },
+          "transition": "Blood_Glucose_Prediabetic"
+        },
+        {
+          "transition": "Blood_Glucose_Normal"
+        }
+      ]
+    },
+    "Blood_Glucose_Normal": {
+      "type": "VitalSign",
+      "vital_sign": "Blood Glucose",
+      "unit": "%",
+      "range": { "low": 4.5, "high": 5.6 },
+      "direct_transition": "Annual_Delay"
+    },
+    "Blood_Glucose_Prediabetic": {
+      "type": "VitalSign",
+      "vital_sign": "Blood Glucose",
+      "unit": "%",
+      "range": { "low": 5.7, "high": 6.4 },
+      "direct_transition": "Annual_Delay"
+    },
+    "Blood_Glucose_Diabetic": {
+      "type": "VitalSign",
+      "vital_sign": "Blood Glucose",
+      "unit": "%",
+      "range": { "low": 6.5, "high": 7.4 },
+      "direct_transition": "Annual_Delay"
+    },
+    "Blood_Glucose_Severe": {
+      "type": "VitalSign",
+      "vital_sign": "Blood Glucose",
+      "unit": "%",
+      "range": { "low": 7.5, "high": 8.9 },
+      "direct_transition": "Annual_Delay"
+    },
+    "Blood_Glucose_Very_Severe": {
+      "type": "VitalSign",
+      "vital_sign": "Blood Glucose",
+      "unit": "%",
+      "range": { "low": 9.0, "high": 12.0 },
+      "direct_transition": "Annual_Delay"
+    },
+    "Terminal": {
+      "type": "Terminal"
+    }
+  },
+  "gmf_version": 2
+}

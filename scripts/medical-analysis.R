@@ -1,243 +1,87 @@
-# Medical analysis example for exported rsynthea data.
+# Clinical analysis of a synthetic population.
 #
-# Run from the repository root:
 #   Rscript --vanilla scripts/medical-analysis.R
+#   RSYNTHEA_N=50 RSYNTHEA_CORES=4 Rscript --vanilla scripts/medical-analysis.R
 #
-# By default this script generates a small synthetic population, exports it to a
-# temporary directory, and then performs a simple clinical analysis on the CSVs.
-# To analyze an existing export instead, set:
-#   RSYNTHEA_ANALYSIS_INPUT=/path/to/exported/csvs Rscript --vanilla scripts/medical-analysis.R
-#
-# Optional generation controls when no input directory is provided:
-#   RSYNTHEA_N=200 RSYNTHEA_CORES=6 Rscript --vanilla scripts/medical-analysis.R
+# To analyse an existing export instead of generating:
+#   RSYNTHEA_INPUT=/path/to/csvs Rscript --vanilla scripts/medical-analysis.R
 
-if (file.exists("DESCRIPTION") && dir.exists("R") && requireNamespace("devtools", quietly = TRUE)) {
+if (file.exists("DESCRIPTION") && requireNamespace("devtools", quietly = TRUE)) {
   devtools::load_all(".", quiet = TRUE)
 } else {
   library(rsynthea)
 }
 
-read_table <- function(input_dir, name) {
-  path <- file.path(input_dir, paste0(name, ".csv"))
-  if (!file.exists(path)) return(data.frame())
-  utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
-}
-
-top_values <- function(x, n = 10L) {
-  x <- x[!is.na(x) & nzchar(as.character(x))]
-  if (length(x) == 0L) return(data.frame())
-  tab <- sort(table(x), decreasing = TRUE)
-  head(data.frame(value = names(tab), count = as.integer(tab), row.names = NULL), n)
-}
-
-parse_time_col <- function(tbl, col) {
-  if (nrow(tbl) == 0L || !col %in% names(tbl)) return(tbl)
-  tbl[[col]] <- as.POSIXct(tbl[[col]], tz = "UTC")
-  tbl
-}
-
-latest_time <- function(...) {
-  vals <- c(...)
-  vals <- vals[!is.na(vals)]
-  if (length(vals) == 0L) return(as.POSIXct(NA, tz = "UTC"))
-  max(vals)
-}
-
-count_by_patient <- function(tbl, patient_ids) {
-  if (nrow(tbl) == 0L) {
-    return(data.frame(patient_id = patient_ids, n_events = 0L, stringsAsFactors = FALSE))
-  }
-  counts <- as.data.frame(table(tbl$patient_id), stringsAsFactors = FALSE)
-  names(counts) <- c("patient_id", "n_events")
-  counts$n_events <- as.integer(counts$n_events)
-  merge(
-    data.frame(patient_id = patient_ids, stringsAsFactors = FALSE),
-    counts,
-    by = "patient_id",
-    all.x = TRUE,
-    sort = FALSE
-  )
-}
-
-normalize_text <- function(x) {
-  tolower(ifelse(is.na(x), "", x))
-}
-
-patients_with_pattern <- function(pattern, conditions) {
-  if (nrow(conditions) == 0L) return(character())
-  hits <- grepl(pattern, normalize_text(conditions$description), perl = TRUE)
-  unique(conditions$patient_id[hits])
-}
-
-summarize_pattern <- function(label, pattern, patients_tbl, conditions_tbl, encounters_tbl, medications_tbl) {
-  patient_ids <- patients_with_pattern(pattern, conditions_tbl)
-  if (length(patient_ids) == 0L) {
-    return(data.frame(
-      condition = label,
-      patients = 0L,
-      prevalence_pct = 0,
-      avg_encounters = 0,
-      avg_conditions = 0,
-      common_condition = NA_character_,
-      stringsAsFactors = FALSE
-    ))
-  }
-
-  encounter_counts <- count_by_patient(encounters_tbl, patient_ids)
-  condition_counts <- count_by_patient(conditions_tbl, patient_ids)
-
-  conds_for_patients <- conditions_tbl[conditions_tbl$patient_id %in% patient_ids, , drop = FALSE]
-  common_cond <- if (nrow(conds_for_patients) > 0L) {
-    top_values(conds_for_patients$description, 1L)$value[[1L]]
-  } else {
-    NA_character_
-  }
-
-  data.frame(
-    condition = label,
-    patients = length(patient_ids),
-    prevalence_pct = round(100 * length(patient_ids) / nrow(patients_tbl), 1),
-    avg_encounters = round(mean(encounter_counts$n_events, na.rm = TRUE), 1),
-    avg_conditions = round(mean(condition_counts$n_events, na.rm = TRUE), 1),
-    common_condition = common_cond,
-    stringsAsFactors = FALSE
-  )
-}
-
-input_dir <- Sys.getenv("RSYNTHEA_ANALYSIS_INPUT", unset = "")
-generated_dir <- FALSE
+input_dir <- Sys.getenv("RSYNTHEA_INPUT", unset = "")
+end_date  <- as.POSIXct("2020-01-01")
 
 if (!nzchar(input_dir)) {
-  end_date <- as.POSIXct(Sys.getenv("RSYNTHEA_ANALYSIS_END_DATE", unset = "2020-01-01"), tz = "UTC")
-  n_patients <- as.integer(Sys.getenv("RSYNTHEA_N", unset = "200"))
-  requested_cores <- as.integer(Sys.getenv("RSYNTHEA_CORES", unset = "0"))
+  n     <- as.integer(Sys.getenv("RSYNTHEA_N",     unset = "20"))
+  cores <- as.integer(Sys.getenv("RSYNTHEA_CORES", unset = "0"))
+  if (cores == 0L) cores <- max(1L, parallel::detectCores(logical = FALSE) - 1L)
 
-  default_mc_cores <- function() {
-    available_cores <- parallel::detectCores(logical = FALSE)
-    if (is.na(available_cores) || available_cores < 1L) available_cores <- 1L
-    max(1L, available_cores - 1L)
-  }
-  mc_cores <- if (requested_cores > 0L) requested_cores else default_mc_cores()
-
-  cat("No input directory provided; generating", n_patients, "patients...\n")
-  modules <- load_all_modules()
-  patients <- generate_population(
-    n = n_patients,
-    seed = 42L,
-    modules = modules,
-    end_date = end_date,
-    mc.cores = mc_cores
-  )
-  input_dir <- file.path(tempdir(), "rsynthea_medical_analysis_input")
-  export_population(patients, output_dir = input_dir)
-  generated_dir <- TRUE
-}
-
-patients <- read_table(input_dir, "patients")
-encounters <- read_table(input_dir, "encounters")
-conditions <- read_table(input_dir, "conditions")
-medications <- read_table(input_dir, "medications")
-observations <- read_table(input_dir, "observations")
-reports <- read_table(input_dir, "reports")
-report_observations <- read_table(input_dir, "report_observations")
-
-patients <- parse_time_col(patients, "birth_date")
-patients <- parse_time_col(patients, "death_date")
-encounters <- parse_time_col(encounters, "time")
-encounters <- parse_time_col(encounters, "end_time")
-conditions <- parse_time_col(conditions, "onset_time")
-conditions <- parse_time_col(conditions, "end_time")
-medications <- parse_time_col(medications, "start_time")
-medications <- parse_time_col(medications, "end_time")
-observations <- parse_time_col(observations, "time")
-reports <- parse_time_col(reports, "time")
-report_observations <- parse_time_col(report_observations, "time")
-
-patients$birth_date <- as.POSIXct(patients$birth_date, tz = "UTC")
-patients$death_date <- as.POSIXct(patients$death_date, tz = "UTC")
-
-analysis_date <- if (generated_dir) {
-  as.POSIXct(Sys.getenv("RSYNTHEA_ANALYSIS_END_DATE", unset = "2020-01-01"), tz = "UTC")
+  modules  <- load_all_modules()
+  patients <- generate_population(n, seed = 42L, modules = modules,
+                                  end_date = end_date, mc.cores = cores)
+  tbls     <- export_population(patients)
 } else {
-  latest_time(
-    encounters$time, conditions$onset_time, medications$start_time,
-    observations$time, reports$time, report_observations$time
+  read_csv <- function(name) {
+    p <- file.path(input_dir, paste0(name, ".csv"))
+    if (file.exists(p)) utils::read.csv(p, stringsAsFactors = FALSE) else data.frame()
+  }
+  tbls <- list(
+    patients   = read_csv("patients"),
+    encounters = read_csv("encounters"),
+    conditions = read_csv("conditions"),
+    medications = read_csv("medications"),
+    observations = read_csv("observations")
   )
+  tbls$patients$birth_date <- as.POSIXct(tbls$patients$birth_date, tz = "UTC")
 }
 
-patient_summary <- data.frame(
-  id = patients$id,
-  age_years = round(as.numeric(difftime(analysis_date, patients$birth_date, units = "days")) / 365.25, 1),
-  is_alive = patients$is_alive,
-  gender = patients$gender,
-  race = patients$race,
-  n_encounters = count_by_patient(encounters, patients$id)$n_events,
-  n_conditions = count_by_patient(conditions, patients$id)$n_events,
-  n_medications = count_by_patient(medications, patients$id)$n_events,
-  n_observations = count_by_patient(observations, patients$id)$n_events,
-  stringsAsFactors = FALSE
-)
+p   <- tbls$patients
+enc <- tbls$encounters
+cnd <- tbls$conditions
+med <- tbls$medications
+obs <- tbls$observations
 
-condition_panels <- rbind(
-  summarize_pattern("Diabetes", "diabetes", patients, conditions, encounters, medications),
-  summarize_pattern("Hypertension", "hypertension|high blood pressure", patients, conditions, encounters, medications),
-  summarize_pattern("Asthma", "asthma", patients, conditions, encounters, medications),
-  summarize_pattern("COPD", "chronic obstructive pulmonary disease|copd", patients, conditions, encounters, medications),
-  summarize_pattern("Depression", "depression", patients, conditions, encounters, medications),
-  summarize_pattern("Obesity", "obesity|overweight", patients, conditions, encounters, medications),
-  summarize_pattern("CKD", "chronic kidney disease|renal failure", patients, conditions, encounters, medications),
-  summarize_pattern("Heart disease", "coronary artery disease|myocardial infarction|heart failure", patients, conditions, encounters, medications)
-)
+age        <- as.numeric(difftime(end_date, p$birth_date, units = "days")) / 365.25
+enc_per_pt <- tabulate(match(enc$patient_id, p$id))
+cnd_per_pt <- tabulate(match(cnd$patient_id, p$id))
 
-multimorbidity_bands <- cut(
-  patient_summary$n_conditions,
-  breaks = c(-Inf, 0, 1, 3, 5, Inf),
-  labels = c("0", "1", "2-3", "4-5", "6+"),
-  right = TRUE
-)
+cat("=== Population ===\n")
+cat("Patients:", nrow(p), "| Alive:", sum(p$is_alive, na.rm = TRUE),
+    "| Dead:", sum(!p$is_alive, na.rm = TRUE), "\n")
+cat("Age  median:", round(median(age, na.rm = TRUE), 1),
+    " mean:", round(mean(age, na.rm = TRUE), 1), "\n")
+cat("Gender F:", sum(p$gender == "F", na.rm = TRUE),
+    " M:", sum(p$gender == "M", na.rm = TRUE), "\n")
 
-utilization_by_band <- aggregate(
-  patient_summary$n_encounters,
-  by = list(multimorbidity = multimorbidity_bands),
-  FUN = function(x) round(mean(x, na.rm = TRUE), 1)
-)
-names(utilization_by_band)[2L] <- "avg_encounters"
+cat("\n=== Utilisation ===\n")
+cat("Total encounters:", nrow(enc),
+    "| per patient (mean):", round(mean(enc_per_pt), 1), "\n")
+cat("Total conditions:", nrow(cnd),
+    "| per patient (mean):", round(mean(cnd_per_pt), 1), "\n")
+cat("Total medications:", nrow(med), "\n")
+cat("Total observations:", nrow(obs), "\n")
 
-cat("\nMedical cohort summary\n")
-cat("----------------------\n")
-cat("Patients:", nrow(patients), "\n")
-cat("Alive:", sum(patients$is_alive %in% TRUE), "\n")
-cat("Dead:", sum(patients$is_alive %in% FALSE), "\n")
-cat("Median age:", round(stats::median(patient_summary$age_years, na.rm = TRUE), 1), "\n")
-cat("Female:", sum(tolower(patients$gender) == "f", na.rm = TRUE), "\n")
-cat("Male:", sum(tolower(patients$gender) == "m", na.rm = TRUE), "\n")
+cat("\n=== Top 10 conditions ===\n")
+cond_tab <- sort(table(cnd$description), decreasing = TRUE)
+print(head(as.data.frame(cond_tab, stringsAsFactors = FALSE), 10L))
 
-cat("\nMost common diagnoses\n")
-diagnostic_descriptions <- conditions$description[
-  !grepl("\\(situation\\)|\\(finding\\)|\\(context-dependent\\)", normalize_text(conditions$description))
-]
-print(top_values(diagnostic_descriptions, 10L))
+cat("\n=== Encounters by class ===\n")
+print(sort(table(enc$encounter_class), decreasing = TRUE))
 
-cat("\nChronic disease panels\n")
-print(condition_panels)
-
-cat("\nMultimorbidity distribution\n")
-print(as.data.frame(table(multimorbidity_bands), stringsAsFactors = FALSE))
-
-cat("\nAverage encounters by multimorbidity band\n")
-print(utilization_by_band)
-
-cat("\nTop medication descriptions\n")
-print(top_values(medications$description, 10L))
-
-cat("\nTop lab and clinical observation descriptions\n")
-print(top_values(observations$description, 10L))
-
-cat("\nHighest-utilization patients\n")
-print(utils::head(patient_summary[order(-patient_summary$n_encounters), ], 10L))
-
-cat("\nReport counts\n")
-cat("Reports:", nrow(reports), "\n")
-cat("Report observations:", nrow(report_observations), "\n")
-
-cat("\nAnalysis complete.\n")
+cat("\n=== Chronic disease prevalence ===\n")
+snomed_prev <- function(label, codes) {
+  n_match <- length(unique(cnd$patient_id[cnd$code %in% codes & cnd$is_active]))
+  cat(sprintf("  %-20s %3d / %d  (%.1f%%)\n", label, n_match, nrow(p), 100 * n_match / nrow(p)))
+}
+snomed_prev("T2DM",          "44054006")
+snomed_prev("Prediabetes",   "714628002")
+snomed_prev("Hypertension",  c("59621000", "38341003"))
+snomed_prev("Asthma",        c("195967001", "233678006"))
+snomed_prev("Depression",    c("35489007", "370143000", "36923009"))
+snomed_prev("Obesity",       c("414916001", "162864005"))
+snomed_prev("Heart failure", c("84114007", "85232009"))
+snomed_prev("MI",            c("22298006", "401303003", "401314000"))

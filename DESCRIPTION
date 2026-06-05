@@ -13,7 +13,8 @@ Imports:
     jsonlite,
     tibble,
     dplyr,
-    digest
+    digest,
+    data.table
 Suggests:
     testthat (>= 3.0.0),
     devtools,

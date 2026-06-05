@@ -62,268 +62,317 @@ export_population <- function(patients, output_dir = NULL) {
   if (!is.null(output_dir)) {
     dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
     for (nm in names(tbls)) {
-      utils::write.csv(tbls[[nm]], file.path(output_dir, paste0(nm, ".csv")),
-                       row.names = FALSE)
+      data.table::fwrite(tbls[[nm]], file.path(output_dir, paste0(nm, ".csv")))
     }
   }
   tbls
 }
 
-# Helper: flatten a list of per-patient lists into one tibble
-.flatten_tbl <- function(patients, fn) {
-  rows <- lapply(patients, fn)
-  dplyr::bind_rows(rows)
+# --- helpers ---
+
+.first_code  <- function(codes) if (length(codes) > 0) codes[[1L]][["code"]]    else NA_character_
+.first_sys   <- function(codes) if (length(codes) > 0) codes[[1L]][["system"]]  else NA_character_
+.first_disp  <- function(codes) if (length(codes) > 0) codes[[1L]][["display"]] else NA_character_
+
+# Expand patient ids: one entry per record in domain `field`.
+.pat_ids <- function(patients, field) {
+  ids   <- vapply(patients, function(p) p@id, character(1L))
+  counts <- vapply(patients, function(p) length(p@.record[[field]]), integer(1L))
+  rep(ids, counts)
 }
 
-.first_code  <- function(codes) if (length(codes) > 0) codes[[1]][["code"]]    else NA_character_
-.first_sys   <- function(codes) if (length(codes) > 0) codes[[1]][["system"]]  else NA_character_
-.first_disp  <- function(codes) if (length(codes) > 0) codes[[1]][["display"]] else NA_character_
+# Collect all records from `field` across all patients into a flat list.
+.all_recs <- function(patients, field) {
+  unlist(lapply(patients, function(p) p@.record[[field]]), recursive = FALSE)
+}
+
+# Extract a POSIXct vector from a list of records.
+.extract_time <- function(recs, key) {
+  .POSIXct(vapply(recs, function(r) {
+    x <- r[[key]]
+    if (is.null(x) || is.na(x)) NA_real_ else as.numeric(x)
+  }, numeric(1L)), tz = "UTC")
+}
+
+# Extract a character vector from a list of records.
+.extract_chr <- function(recs, key, default = NA_character_) {
+  vapply(recs, function(r) r[[key]] %||% default, character(1L))
+}
+
+# Extract a logical vector from a list of records.
+.extract_lgl <- function(recs, key, default = NA) {
+  vapply(recs, function(r) {
+    v <- r[[key]]
+    if (is.null(v)) default else as.logical(v)
+  }, logical(1L))
+}
+
+# --- domain tables ---
 
 .patients_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    a <- p@attributes
-    tibble::tibble(
-      id         = p@id,
-      birth_date = a[["birth_date"]] %||% NA,
-      death_date = a[["death_date"]] %||% NA,
-      is_alive   = p@is_alive,
-      gender     = a[["gender"]]     %||% NA_character_,
-      race       = a[["race"]]       %||% NA_character_,
-      ethnicity  = a[["ethnicity"]]  %||% NA_character_,
-      first_name = a[["first_name"]] %||% NA_character_,
-      last_name  = a[["last_name"]]  %||% NA_character_,
-      state      = a[["state"]]      %||% NA_character_,
-      city       = a[["city"]]       %||% NA_character_
-    )
-  })
+  tibble::tibble(
+    id         = vapply(patients, function(p) p@id, character(1L)),
+    birth_date = .POSIXct(vapply(patients, function(p) {
+      x <- p@attributes[["birth_date"]]; if (is.null(x)) NA_real_ else as.numeric(x)
+    }, numeric(1L)), tz = "UTC"),
+    death_date = .POSIXct(vapply(patients, function(p) {
+      x <- p@attributes[["death_date"]]; if (is.null(x)) NA_real_ else as.numeric(x)
+    }, numeric(1L)), tz = "UTC"),
+    is_alive   = vapply(patients, function(p) p@is_alive, logical(1L)),
+    gender     = vapply(patients, function(p) p@attributes[["gender"]]     %||% NA_character_, character(1L)),
+    race       = vapply(patients, function(p) p@attributes[["race"]]       %||% NA_character_, character(1L)),
+    ethnicity  = vapply(patients, function(p) p@attributes[["ethnicity"]]  %||% NA_character_, character(1L)),
+    first_name = vapply(patients, function(p) p@attributes[["first_name"]] %||% NA_character_, character(1L)),
+    last_name  = vapply(patients, function(p) p@attributes[["last_name"]]  %||% NA_character_, character(1L)),
+    state      = vapply(patients, function(p) p@attributes[["state"]]      %||% NA_character_, character(1L)),
+    city       = vapply(patients, function(p) p@attributes[["city"]]       %||% NA_character_, character(1L))
+  )
 }
 
 .encounters_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$encounters) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$encounters, function(e) {
-      tibble::tibble(
-        id              = e$id,
-        patient_id      = p@id,
-        time            = e$time,
-        end_time        = e$end_time %||% NA,
-        encounter_class = e$encounter_class %||% NA_character_,
-        code            = .first_code(e$codes),
-        code_system     = .first_sys(e$codes),
-        description     = .first_disp(e$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "encounters")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
+      encounter_class = character(), code = character(), code_system = character(),
+      description = character()))
+  }
+  tibble::tibble(
+    id              = .extract_chr(recs, "id"),
+    patient_id      = .pat_ids(patients, "encounters"),
+    time            = .extract_time(recs, "time"),
+    end_time        = .extract_time(recs, "end_time"),
+    encounter_class = .extract_chr(recs, "encounter_class"),
+    code            = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system     = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description     = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .conditions_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$conditions) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$conditions, function(c) {
-      tibble::tibble(
-        id          = c$id,
-        patient_id  = p@id,
-        onset_time  = c$time,
-        end_time    = c$end_time %||% NA,
-        is_active   = c$is_active,
-        code        = .first_code(c$codes),
-        code_system = .first_sys(c$codes),
-        description = .first_disp(c$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "conditions")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      onset_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
+      is_active = logical(), code = character(), code_system = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "conditions"),
+    onset_time  = .extract_time(recs, "time"),
+    end_time    = .extract_time(recs, "end_time"),
+    is_active   = .extract_lgl(recs, "is_active", default = TRUE),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .medications_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$medications) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$medications, function(m) {
-      tibble::tibble(
-        id          = m$id,
-        patient_id  = p@id,
-        start_time  = m$time,
-        end_time    = m$end_time %||% NA,
-        is_active   = m$is_active,
-        code        = .first_code(m$codes),
-        code_system = .first_sys(m$codes),
-        description = .first_disp(m$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "medications")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      start_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
+      is_active = logical(), code = character(), code_system = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "medications"),
+    start_time  = .extract_time(recs, "time"),
+    end_time    = .extract_time(recs, "end_time"),
+    is_active   = .extract_lgl(recs, "is_active", default = TRUE),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .procedures_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$procedures) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$procedures, function(pr) {
-      tibble::tibble(
-        id          = pr$id,
-        patient_id  = p@id,
-        time        = pr$time,
-        code        = .first_code(pr$codes),
-        code_system = .first_sys(pr$codes),
-        description = .first_disp(pr$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "procedures")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), code = character(),
+      code_system = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "procedures"),
+    time        = .extract_time(recs, "time"),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .observations_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$observations) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$observations, function(o) {
-      tibble::tibble(
-        id          = o$id,
-        patient_id  = p@id,
-        time        = o$time,
-        value       = as.character(o$value %||% NA),
-        unit        = o$unit     %||% NA_character_,
-        category    = o$category %||% NA_character_,
-        code        = .first_code(o$codes),
-        code_system = .first_sys(o$codes),
-        description = .first_disp(o$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "observations")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), value = character(), unit = character(),
+      category = character(), code = character(), code_system = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "observations"),
+    time        = .extract_time(recs, "time"),
+    value       = vapply(recs, function(r) as.character(r$value %||% NA), character(1L)),
+    unit        = .extract_chr(recs, "unit"),
+    category    = .extract_chr(recs, "category"),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .immunizations_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$immunizations) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$immunizations, function(i) {
-      tibble::tibble(
-        id          = i$id,
-        patient_id  = p@id,
-        time        = i$time,
-        code        = .first_code(i$codes),
-        description = .first_disp(i$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "immunizations")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), code = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "immunizations"),
+    time        = .extract_time(recs, "time"),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .allergies_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$allergies) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$allergies, function(a) {
-      tibble::tibble(
-        id          = a$id,
-        patient_id  = p@id,
-        onset_time  = a$time,
-        end_time    = a$end_time %||% NA,
-        is_active   = a$is_active,
-        code        = .first_code(a$codes),
-        description = .first_disp(a$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "allergies")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      onset_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
+      is_active = logical(), code = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "allergies"),
+    onset_time  = .extract_time(recs, "time"),
+    end_time    = .extract_time(recs, "end_time"),
+    is_active   = .extract_lgl(recs, "is_active", default = TRUE),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .careplans_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$careplans) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$careplans, function(cp) {
-      tibble::tibble(
-        id          = cp$id,
-        patient_id  = p@id,
-        start_time  = cp$time,
-        end_time    = cp$end_time %||% NA,
-        is_active   = cp$is_active,
-        code        = .first_code(cp$codes),
-        description = .first_disp(cp$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "careplans")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      start_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
+      is_active = logical(), code = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "careplans"),
+    start_time  = .extract_time(recs, "time"),
+    end_time    = .extract_time(recs, "end_time"),
+    is_active   = .extract_lgl(recs, "is_active", default = TRUE),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .imaging_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$imaging) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$imaging, function(i) {
-      tibble::tibble(
-        id          = i$id,
-        patient_id  = p@id,
-        time        = i$time,
-        code        = .first_code(i$codes),
-        code_system = .first_sys(i$codes),
-        description = .first_disp(i$codes),
-        series_count = length(i$series %||% list())
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "imaging")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), code = character(),
+      code_system = character(), description = character(), series_count = integer()))
+  }
+  tibble::tibble(
+    id           = .extract_chr(recs, "id"),
+    patient_id   = .pat_ids(patients, "imaging"),
+    time         = .extract_time(recs, "time"),
+    code         = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system  = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description  = vapply(recs, function(r) .first_disp(r$codes), character(1L)),
+    series_count = vapply(recs, function(r) length(r$series %||% list()), integer(1L))
+  )
 }
 
 .devices_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$devices) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$devices, function(d) {
-      tibble::tibble(
-        id          = d$id,
-        patient_id  = p@id,
-        start_time  = d$time,
-        end_time    = d$end_time %||% NA,
-        is_active   = d$is_active,
-        code        = .first_code(d$codes),
-        code_system = .first_sys(d$codes),
-        description = .first_disp(d$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "devices")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      start_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
+      is_active = logical(), code = character(), code_system = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "devices"),
+    start_time  = .extract_time(recs, "time"),
+    end_time    = .extract_time(recs, "end_time"),
+    is_active   = .extract_lgl(recs, "is_active", default = TRUE),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }
 
 .reports_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$reports) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$reports, function(r) {
-      tibble::tibble(
-        id          = r$id,
-        patient_id  = p@id,
-        time        = r$time,
-        code        = .first_code(r$codes),
-        code_system = .first_sys(r$codes),
-        description = .first_disp(r$codes),
-        observation_count = length(r$observations %||% list())
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "reports")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), code = character(),
+      code_system = character(), description = character(), observation_count = integer()))
+  }
+  tibble::tibble(
+    id                = .extract_chr(recs, "id"),
+    patient_id        = .pat_ids(patients, "reports"),
+    time              = .extract_time(recs, "time"),
+    code              = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system       = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description       = vapply(recs, function(r) .first_disp(r$codes), character(1L)),
+    observation_count = vapply(recs, function(r) length(r$observations %||% list()), integer(1L))
+  )
 }
 
 .report_observations_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$reports) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$reports, function(r) {
-      observations <- r$observations %||% list()
-      if (length(observations) == 0) return(tibble::tibble())
-      dplyr::bind_rows(lapply(observations, function(o) {
-        tibble::tibble(
-          id          = o$id,
-          report_id   = r$id,
-          patient_id  = p@id,
-          time        = o$time,
-          value       = as.character(o$value %||% NA),
-          unit        = o$unit %||% NA_character_,
-          code        = .first_code(o$codes),
-          code_system = .first_sys(o$codes),
-          description = .first_disp(o$codes)
-        )
-      }))
-    }))
-  })
+  all_reports <- .all_recs(patients, "reports")
+  if (length(all_reports) == 0L) {
+    return(tibble::tibble(id = character(), report_id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), value = character(), unit = character(),
+      code = character(), code_system = character(), description = character()))
+  }
+  pat_id_per_report <- .pat_ids(patients, "reports")
+  obs_lists <- lapply(all_reports, function(r) r$observations %||% list())
+  obs_counts <- lengths(obs_lists)
+  all_obs <- unlist(obs_lists, recursive = FALSE)
+  if (length(all_obs) == 0L) {
+    return(tibble::tibble(id = character(), report_id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), value = character(), unit = character(),
+      code = character(), code_system = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(all_obs, "id"),
+    report_id   = rep(.extract_chr(all_reports, "id"), obs_counts),
+    patient_id  = rep(pat_id_per_report, obs_counts),
+    time        = .extract_time(all_obs, "time"),
+    value       = vapply(all_obs, function(o) as.character(o$value %||% NA), character(1L)),
+    unit        = .extract_chr(all_obs, "unit"),
+    code        = vapply(all_obs, function(o) .first_code(o$codes), character(1L)),
+    code_system = vapply(all_obs, function(o) .first_sys(o$codes),  character(1L)),
+    description = vapply(all_obs, function(o) .first_disp(o$codes), character(1L))
+  )
 }
 
 .supplies_tbl <- function(patients) {
-  .flatten_tbl(patients, function(p) {
-    if (length(p@.record$supplies) == 0) return(tibble::tibble())
-    dplyr::bind_rows(lapply(p@.record$supplies, function(s) {
-      tibble::tibble(
-        id          = s$id,
-        patient_id  = p@id,
-        time        = s$time,
-        quantity    = as.character(s$quantity %||% NA),
-        code        = .first_code(s$codes),
-        code_system = .first_sys(s$codes),
-        description = .first_disp(s$codes)
-      )
-    }))
-  })
+  recs <- .all_recs(patients, "supplies")
+  if (length(recs) == 0L) {
+    return(tibble::tibble(id = character(), patient_id = character(),
+      time = .POSIXct(numeric(), tz = "UTC"), quantity = character(),
+      code = character(), code_system = character(), description = character()))
+  }
+  tibble::tibble(
+    id          = .extract_chr(recs, "id"),
+    patient_id  = .pat_ids(patients, "supplies"),
+    time        = .extract_time(recs, "time"),
+    quantity    = vapply(recs, function(r) as.character(r$quantity %||% NA), character(1L)),
+    code        = vapply(recs, function(r) .first_code(r$codes), character(1L)),
+    code_system = vapply(recs, function(r) .first_sys(r$codes),  character(1L)),
+    description = vapply(recs, function(r) .first_disp(r$codes), character(1L))
+  )
 }

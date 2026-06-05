@@ -41,7 +41,7 @@ evaluate_condition <- function(cond, person, time) {
 }
 
 .compare <- function(left, op, right) {
-  tryCatch(
+  isTRUE(tryCatch(
     switch(op,
       "<"  = left < right,
       "<=" = left <= right,
@@ -52,7 +52,7 @@ evaluate_condition <- function(cond, person, time) {
       FALSE
     ),
     error = function(e) FALSE
-  )
+  ))
 }
 
 .cond_gender <- function(cond, person) {
@@ -101,10 +101,13 @@ evaluate_condition <- function(cond, person, time) {
 
 .cond_attribute <- function(cond, person) {
   attr_val <- person@attributes[[cond[["attribute"]]]]
-  if (is.null(cond[["operator"]]) && is.null(cond[["value"]])) return(!is.null(attr_val))
-  if (is.null(attr_val)) return(identical(cond[["operator"]], "!="))
+  op <- cond[["operator"]]
+  if (identical(op, "is not nil")) return(!is.null(attr_val))
+  if (identical(op, "is nil"))     return(is.null(attr_val))
+  if (is.null(op) && is.null(cond[["value"]])) return(!is.null(attr_val))
+  if (is.null(attr_val)) return(identical(op, "!="))
   target <- cond[["value"]] %||% cond[["value_code"]]
-  .compare(attr_val, cond[["operator"]] %||% "==", target)
+  .compare(attr_val, op %||% "==", target)
 }
 
 .cond_symptom <- function(cond, person) {

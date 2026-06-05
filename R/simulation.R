@@ -41,6 +41,7 @@ simulate_life <- function(person, modules, end_date = Sys.time()) {
     current_time <- .POSIXct(t_cur)
     rec$.t_num   <- t_cur
     for (module in modules) {
+      if (isTRUE(module$is_submodule)) next
       if (identical(rec[[module$state_key]], "__terminal__")) next
       person <- advance_module(person, module, current_time, modules)
       if (!rec$.is_alive) break

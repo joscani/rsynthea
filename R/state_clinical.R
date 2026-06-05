@@ -45,7 +45,7 @@
     if (!is.null(wt) && wt >= t_num) {
       return(list(person = person, next_state = state[["name"]]))
     }
-    rec[[wellness_key]] <- t_num
+    rec[[wellness_key]] <- t_num + 365.25 * 86400
   }
 
   enc_env <- new.env(parent = emptyenv(), hash = FALSE)
@@ -72,7 +72,11 @@
 # --- Condition ---
 
 .state_condition_onset <- function(state, person, time) {
-  rec      <- .REC$e
+  rec          <- .REC$e
+  primary_code <- state[["codes"]][[1L]][["code"]]
+  if (!is.null(primary_code) && !is.null(rec$.active_conditions[[primary_code]])) {
+    return(.next(state, person, time))
+  }
   cond_env <- new.env(parent = emptyenv(), hash = FALSE)
   cond_env$id        <- .new_id()
   cond_env$time      <- time
@@ -81,7 +85,6 @@
   cond_env$end_time  <- NULL
   rec$conditions[[length(rec$conditions) + 1L]] <- cond_env
   rec[[state[["cond_key"]]]] <- cond_env
-  primary_code <- cond_env$codes[[1L]][["code"]]
   if (!is.null(primary_code)) rec$.active_conditions[[primary_code]] <- cond_env
   .next(state, person, time)
 }

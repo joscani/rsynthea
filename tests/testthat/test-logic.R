@@ -88,6 +88,38 @@ test_that("Attribute condition with == operator", {
   ))
 })
 
+test_that("Attribute 'is not nil' returns TRUE when attribute is set", {
+  p <- make_person(extra_attrs = list(atopic = TRUE))
+  expect_true(evaluate_condition(
+    list(condition_type = "Attribute", attribute = "atopic", operator = "is not nil"),
+    p, Sys.time()
+  ))
+})
+
+test_that("Attribute 'is not nil' returns FALSE when attribute is absent", {
+  p <- make_person()
+  expect_false(evaluate_condition(
+    list(condition_type = "Attribute", attribute = "atopic", operator = "is not nil"),
+    p, Sys.time()
+  ))
+})
+
+test_that("Attribute 'is nil' returns TRUE when attribute is absent", {
+  p <- make_person()
+  expect_true(evaluate_condition(
+    list(condition_type = "Attribute", attribute = "atopic", operator = "is nil"),
+    p, Sys.time()
+  ))
+})
+
+test_that("Attribute 'is nil' returns FALSE when attribute is set", {
+  p <- make_person(extra_attrs = list(atopic = TRUE))
+  expect_false(evaluate_condition(
+    list(condition_type = "Attribute", attribute = "atopic", operator = "is nil"),
+    p, Sys.time()
+  ))
+})
+
 test_that("Active Condition checks health record", {
   p <- make_person()
   cond_env <- new.env(parent = emptyenv())

@@ -89,6 +89,47 @@ test_that("SetAttribute sets attribute and transitions", {
   expect_equal(r$next_state, "Next")
 })
 
+test_that("Delay with v2 distribution EXACT does not fire before its duration", {
+  s <- GMFState(
+    name = "WaitV2", type = "Delay",
+    definition = list(
+      type         = "Delay",
+      distribution = list(kind = "EXACT", parameters = list(value = 1)),
+      unit         = "years",
+      direct_transition = "After"
+    ),
+    transition = parse_transition(list(direct_transition = "After"))
+  )
+  p   <- make_person_basic()
+  now <- as.POSIXct("2020-01-01")
+
+  r1 <- process_state(s, p, now)
+  expect_equal(r1$next_state, "WaitV2")
+
+  # 6 months later — should still be waiting (duration = 1 year)
+  r2 <- process_state(s, r1$person, now + 180 * 86400)
+  expect_equal(r2$next_state, "WaitV2")
+})
+
+test_that("SetAttribute with v2 GAUSSIAN distribution sets a numeric attribute", {
+  s <- GMFState(
+    name = "SampleAge", type = "SetAttribute",
+    definition = list(
+      type         = "SetAttribute",
+      attribute    = "time_until_event",
+      distribution = list(kind = "GAUSSIAN",
+                          parameters = list(mean = 55, standardDeviation = 15)),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  set.seed(42L)
+  r <- process_state(s, make_person_basic(), Sys.time())
+  val <- r$person@attributes[["time_until_event"]]
+  expect_true(is.numeric(val))
+  expect_false(is.null(val))
+})
+
 test_that("Counter increments attribute", {
   s <- GMFState(
     name = "Count", type = "Counter",

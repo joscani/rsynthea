@@ -1,11 +1,15 @@
 # R/state_observe.R
 
 .resolve_obs_value <- function(def, person) {
-  if (!is.null(def[["exact"]]))     return(.coerce_quantity(def[["exact"]][["quantity"]]))
-  if (!is.null(def[["range"]]))     return(stats::runif(1, as.numeric(def[["range"]][["low"]]),
-                                                        as.numeric(def[["range"]][["high"]])))
+  if (!is.null(def[["exact"]]))      return(.coerce_quantity(def[["exact"]][["quantity"]]))
+  if (!is.null(def[["range"]]))      return(stats::runif(1, as.numeric(def[["range"]][["low"]]),
+                                                         as.numeric(def[["range"]][["high"]])))
   if (!is.null(def[["attribute"]])) return(person@attributes[[def[["attribute"]]]])
-  if (!is.null(def[["value"]]))     return(def[["value"]])
+  if (!is.null(def[["value"]]))      return(def[["value"]])
+  if (!is.null(def[["vital_sign"]])) {
+    vs <- person@vital_signs[[def[["vital_sign"]]]]
+    return(if (!is.null(vs)) vs[["value"]] else NA_real_)
+  }
   NA_real_
 }
 
@@ -27,10 +31,6 @@
     code_value <- code[["code"]]
     if (is.null(code_value) || !nzchar(code_value)) next
     rec$.latest_observations[[code_value]] <- observation
-    by_code <- rec$.observations_by_code[[code_value]]
-    if (is.null(by_code)) by_code <- list()
-    by_code[[length(by_code) + 1L]] <- observation
-    rec$.observations_by_code[[code_value]] <- by_code
   }
 }
 

@@ -68,13 +68,29 @@ process_state <- function(state, person, time) {
   .next(state, person, time)
 }
 
+.unit_secs <- c(years = 365.25 * 86400, months = 30.44 * 86400,
+                weeks = 7 * 86400, days = 86400, hours = 3600)
+
+.unit_lookup <- function(unit) {
+  v <- .unit_secs[unit]
+  if (is.na(v)) 86400 else v
+}
+
+.sample_distribution <- function(dist) {
+  kind   <- toupper(dist[["kind"]] %||% "EXACT")
+  params <- dist[["parameters"]] %||% list()
+  switch(kind,
+    "EXACT"       = as.numeric(params[["value"]] %||% 0),
+    "UNIFORM"     = stats::runif(1, as.numeric(params[["low"]] %||% 0),
+                                    as.numeric(params[["high"]] %||% 0)),
+    "GAUSSIAN"    = stats::rnorm(1, mean = as.numeric(params[["mean"]] %||% 0),
+                                    sd   = as.numeric(params[["standardDeviation"]] %||% 1)),
+    "EXPONENTIAL" = stats::rexp(1, rate = 1 / max(as.numeric(params[["mean"]] %||% 1), 1e-9)),
+    0
+  )
+}
+
 .resolve_duration <- function(def) {
-  unit_secs <- c(years = 365.25 * 86400, months = 30.44 * 86400,
-                 weeks = 7 * 86400, days = 86400, hours = 3600)
-  .unit_lookup <- function(unit) {
-    v <- unit_secs[unit]
-    if (is.na(v)) 86400 else v
-  }
   if (!is.null(def[["exact"]])) {
     qty  <- as.numeric(def[["exact"]][["quantity"]])
     unit <- def[["exact"]][["unit"]] %||% "days"
@@ -85,6 +101,12 @@ process_state <- function(state, person, time) {
     high <- as.numeric(def[["range"]][["high"]])
     unit <- def[["range"]][["unit"]] %||% "days"
     return(stats::runif(1, low, high) * .unit_lookup(unit))
+  }
+  # v2 format: distribution.kind + separate unit field
+  dist <- def[["distribution"]]
+  if (is.list(dist) && !is.null(dist[["kind"]])) {
+    unit <- def[["unit"]] %||% "days"
+    return(.sample_distribution(dist) * .unit_lookup(unit))
   }
   0
 }
@@ -100,7 +122,12 @@ process_state <- function(state, person, time) {
 .state_set_attribute <- function(state, person, time) {
   attr_name <- state[["attr_name"]]
   if (!is.null(attr_name)) {
-    person@attributes[[attr_name]] <- state[["attr_value"]]
+    val  <- state[["attr_value"]]
+    dist <- state[["definition"]][["distribution"]]
+    if (is.null(val) && is.list(dist) && !is.null(dist[["kind"]])) {
+      val <- .sample_distribution(dist)
+    }
+    person@attributes[[attr_name]] <- val
   }
   .next(state, person, time)
 }

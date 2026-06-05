@@ -330,9 +330,10 @@ test_that("Observation updates latest and by-code indices", {
   p <- process_state(s2, p, as.POSIXct("2020-02-01"))$person
 
   rec <- p@.record
+  obs_by_code <- Filter(function(o) any(vapply(o$codes, function(c) c[["code"]] == "718-7", logical(1))), rec$observations)
   expect_equal(rec$.latest_observations[["718-7"]]$value, 12)
-  expect_equal(length(rec$.observations_by_code[["718-7"]]), 2L)
-  expect_equal(rec$.observations_by_code[["718-7"]][[1L]]$value, 10)
+  expect_equal(length(obs_by_code), 2L)
+  expect_equal(obs_by_code[[1L]]$value, 10)
 })
 
 test_that("Observation condition uses latest indexed observation", {
@@ -368,7 +369,7 @@ test_that("Observation condition uses latest indexed observation", {
   ))
 })
 
-test_that("MultiObservation updates by-code index for each sub-observation", {
+test_that("MultiObservation updates latest-observation index for each sub-observation", {
   s <- GMFState(
     name = "BloodPressure", type = "MultiObservation",
     definition = list(
@@ -390,7 +391,8 @@ test_that("MultiObservation updates by-code index for each sub-observation", {
 
   expect_equal(rec$.latest_observations[["8480-6"]]$value, 120)
   expect_equal(rec$.latest_observations[["8462-4"]]$value, 80)
-  expect_equal(length(rec$.observations_by_code[["8480-6"]]), 1L)
+  obs_systolic <- Filter(function(o) any(vapply(o$codes, function(c) c[["code"]] == "8480-6", logical(1))), rec$observations)
+  expect_equal(length(obs_systolic), 1L)
 })
 
 # --- VitalSign ---
@@ -461,6 +463,110 @@ test_that("Device with singular code adds coded device", {
   r <- process_state(s, make_person_clinical(), Sys.time())
   expect_equal(length(r$person@.record$devices), 1L)
   expect_equal(r$person@.record$devices[[1]]$codes[[1]][["code"]], "228869008")
+})
+
+# --- Observation vital_sign source ---
+
+test_that("Observation reads value from person vital_signs when vital_sign field set", {
+  s <- GMFState(
+    name = "RecordGlucose", type = "Observation",
+    definition = list(
+      type       = "Observation",
+      vital_sign = "Blood Glucose",
+      unit       = "%",
+      codes      = list(list(system = "LOINC", code = "2345-7", display = "Glucose")),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  p@vital_signs[["Blood Glucose"]] <- list(value = 6.2, unit = "%")
+  r <- process_state(s, p, as.POSIXct("2020-01-01"))
+  expect_equal(r$person@.record$observations[[1]]$value, 6.2)
+})
+
+test_that("Observation returns NA when vital_sign not set on person", {
+  s <- GMFState(
+    name = "RecordGlucose", type = "Observation",
+    definition = list(
+      type       = "Observation",
+      vital_sign = "Blood Glucose",
+      unit       = "%",
+      codes      = list(list(system = "LOINC", code = "2345-7", display = "Glucose")),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  r <- process_state(s, p, as.POSIXct("2020-01-01"))
+  expect_true(is.na(r$person@.record$observations[[1]]$value))
+})
+
+# --- ConditionOnset idempotency ---
+
+test_that("ConditionOnset does not add duplicate when condition already active", {
+  s <- GMFState(
+    name = "HyperOnset", type = "ConditionOnset",
+    definition = list(
+      type = "ConditionOnset",
+      codes = list(list(system = "SNOMED-CT", code = "59621000", display = "Hypertension")),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  p <- process_state(s, p, as.POSIXct("2020-01-01"))$person
+  p <- process_state(s, p, as.POSIXct("2020-06-01"))$person
+  expect_equal(length(p@.record$conditions), 1L)
+})
+
+# --- Wellness encounter cooldown ---
+
+test_that("wellness encounter does not fire again within one year", {
+  s <- GMFState(
+    name = "WellnessVisit", type = "Encounter",
+    definition = list(
+      type = "Encounter",
+      wellness = TRUE,
+      encounter_class = "ambulatory",
+      codes = list(),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  rec <- p@.record
+  rec$.t_num <- as.numeric(as.POSIXct("2020-01-01"))
+  p <- process_state(s, p, as.POSIXct("2020-01-01"))$person
+  expect_equal(length(p@.record$encounters), 1L)
+
+  # 6 months later — should still be blocked
+  p@.record$.t_num <- as.numeric(as.POSIXct("2020-07-01"))
+  p <- process_state(s, p, as.POSIXct("2020-07-01"))$person
+  expect_equal(length(p@.record$encounters), 1L)
+})
+
+test_that("wellness encounter fires again after one year", {
+  s <- GMFState(
+    name = "WellnessVisit", type = "Encounter",
+    definition = list(
+      type = "Encounter",
+      wellness = TRUE,
+      encounter_class = "ambulatory",
+      codes = list(),
+      direct_transition = "Next"
+    ),
+    transition = parse_transition(list(direct_transition = "Next"))
+  )
+  p <- make_person_clinical()
+  p@.record$.t_num <- as.numeric(as.POSIXct("2020-01-01"))
+  p <- process_state(s, p, as.POSIXct("2020-01-01"))$person
+  expect_equal(length(p@.record$encounters), 1L)
+
+  # 13 months later — cooldown expired, should fire
+  p@.record$.t_num <- as.numeric(as.POSIXct("2021-02-01"))
+  p <- process_state(s, p, as.POSIXct("2021-02-01"))$person
+  expect_equal(length(p@.record$encounters), 2L)
 })
 
 test_that("SupplyList adds one record per supply", {

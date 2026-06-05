@@ -5,14 +5,15 @@
 #   name, codes, definition                  (~100-200K accesses each)
 #   ...rest
 
-GMFState <- function(name, type, definition, transition) {
+GMFState <- function(name, type, definition, transition, module_name = "") {
+  wk_prefix <- if (nzchar(module_name)) paste0(module_name, "/") else ""
   list(
     type             = type,
     transition       = transition,
     visited_key      = paste0("__visited__", name),
     call_key         = paste0("__call_submodule__", name),
     is_wellness      = isTRUE(definition[["wellness"]]),
-    wellness_key     = paste0("__wellness_time__", name),
+    wellness_key     = paste0("__wellness_time__", wk_prefix, name),
     name             = name,
     codes            = .parse_codes(.state_codes(definition)),
     definition       = definition,
@@ -59,13 +60,14 @@ GMFState <- function(name, type, definition, transition) {
   if (!is.null(code)) list(code) else list()
 }
 
-Module <- function(name, states, submodules = list()) {
+Module <- function(name, states, submodules = list(), is_submodule = FALSE) {
   structure(
     list(
-      name       = name,
-      states     = states,
-      submodules = submodules,
-      state_key  = paste0("__module_state__", name)
+      name         = name,
+      states       = states,
+      submodules   = submodules,
+      is_submodule = is_submodule,
+      state_key    = paste0("__module_state__", name)
     ),
     class = "Module"
   )
@@ -78,10 +80,11 @@ load_module <- function(path) {
 
   states_list <- Map(function(s, nm) {
     GMFState(
-      name       = nm,
-      type       = s[["type"]] %||% "Simple",
-      definition = s,
-      transition = parse_transition(s)
+      name        = nm,
+      type        = s[["type"]] %||% "Simple",
+      definition  = s,
+      transition  = parse_transition(s),
+      module_name = name
     )
   }, states_raw, names(states_raw))
 
@@ -126,18 +129,24 @@ load_all_modules <- function(modules_dir = NULL) {
   if (is.null(modules_dir)) {
     modules_dir <- system.file("extdata/modules", package = "rsynthea")
   }
-  json_files <- list.files(
+  modules_dir <- normalizePath(modules_dir, mustWork = FALSE)
+  json_files  <- list.files(
     modules_dir, pattern = "\\.json$", full.names = TRUE, recursive = TRUE
   )
   modules <- lapply(json_files, function(f) {
-    tryCatch(
-      load_module(f),
-      error = function(e) {
-        warning("Failed to load module: ", basename(f), " -- ", conditionMessage(e))
-        NULL
-      }
-    )
+    rel    <- substring(normalizePath(f, mustWork = FALSE), nchar(modules_dir) + 2L)
+    key    <- tools::file_path_sans_ext(rel)
+    is_sub <- grepl("/", key, fixed = TRUE)
+    tryCatch({
+      m              <- load_module(f)
+      m$is_submodule <- is_sub
+      m$.key         <- key
+      m
+    }, error = function(e) {
+      warning("Failed to load module: ", basename(f), " -- ", conditionMessage(e))
+      NULL
+    })
   })
   modules <- Filter(Negate(is.null), modules)
-  stats::setNames(modules, vapply(modules, function(m) m$name, character(1)))
+  stats::setNames(modules, vapply(modules, function(m) m$.key, character(1)))
 }

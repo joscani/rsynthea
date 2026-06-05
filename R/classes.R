@@ -174,7 +174,6 @@ Person <- new_class("Person",
     rec$.active_medications <- new.env(parent = emptyenv(), hash = TRUE)
     rec$.active_careplans   <- new.env(parent = emptyenv(), hash = TRUE)
     rec$.latest_observations <- new.env(parent = emptyenv(), hash = TRUE)
-    rec$.observations_by_code <- new.env(parent = emptyenv(), hash = TRUE)
     S7::new_object(S7::S7_object(),
       seed           = seed,
       id             = id,
