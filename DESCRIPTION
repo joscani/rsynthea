@@ -21,5 +21,10 @@ LinkingTo:
 Suggests:
     testthat (>= 3.0.0),
     devtools,
-    withr
+    withr,
+    knitr,
+    rmarkdown,
+    dplyr,
+    ggplot2
+VignetteBuilder: knitr
 Config/testthat/edition: 3
