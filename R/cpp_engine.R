@@ -1,6 +1,10 @@
 # R/cpp_engine.R — thin R wrapper around the C++ simulation engine.
 # Called by generate_population() when use_cpp = TRUE.
 
+#' @useDynLib rsynthea, .registration = TRUE
+#' @importFrom Rcpp sourceCpp
+NULL
+
 #' Generate a population using the C++ engine (internal)
 #' @keywords internal
 .generate_population_cpp <- function(

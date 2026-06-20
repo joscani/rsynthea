@@ -12,8 +12,10 @@ module JSON files. Defaults to \verb{inst/extdata/modules/} inside the installed
 package.}
 }
 \value{
-A named list of \code{Module} objects, keyed by module name. The list is
-passed directly to \code{\link[=generate_population]{generate_population()}} or \code{\link[=simulate_life]{simulate_life()}}.
+A named list of \code{Module} objects, keyed by module path relative to
+\code{modules_dir} (e.g. \code{"diabetes"}, \code{"medications/metformin"}). Can be passed
+to \code{generate_population(modules = ...)} to override the session cache, or to
+\code{\link[=compile_all_modules]{compile_all_modules()}} to produce C++-ready structs.
 }
 \description{
 Reads every \code{.json} file in \code{modules_dir} (recursively) and parses each one
@@ -21,22 +23,29 @@ into a \code{Module} object. Modules that fail to parse emit a warning and are
 silently dropped.
 }
 \details{
-Each \code{Module} stores its states as a \strong{hashed environment} (\code{list2env(..., hash = TRUE)}) so that \code{mod_states[[state_name]]} is O(1). The bundled
-module set has 242 modules with a median of 19 states each.
+You rarely need to call this directly. \code{\link[=generate_population]{generate_population()}} loads and
+caches modules automatically on the first call. Use \code{load_all_modules()}
+explicitly only when working with \strong{custom modules} in a non-default
+directory, or when you want to inspect or modify the module list before
+passing it to \code{\link[=compile_all_modules]{compile_all_modules()}}.
 
-Loading takes ~1–2 s. Cache the result and reuse it across calls to
-\code{\link[=generate_population]{generate_population()}} to avoid repeated I/O.
+The bundled module set has 243 modules. Each \code{Module} stores its states as a
+hashed environment so that state lookup is O(1).
 }
 \examples{
 \dontrun{
-modules <- load_all_modules()
-length(modules)  # 242
+# Inspect the bundled modules
+m <- load_all_modules()
+length(m)       # 243
+names(m)[1:5]
 
-patients <- generate_population(10, seed = 1L, modules = modules,
-                                end_date = as.POSIXct("2020-01-01"))
+# Load custom modules from a local directory
+m_custom <- load_all_modules("path/to/my/modules")
+tbls <- generate_population(10, seed = 1L, modules = m_custom,
+                            end_date = as.POSIXct("2020-01-01"))
 }
 
 }
 \seealso{
-\code{\link[=generate_population]{generate_population()}}, \code{\link[=simulate_life]{simulate_life()}}
+\code{\link[=generate_population]{generate_population()}}, \code{\link[=compile_all_modules]{compile_all_modules()}}
 }

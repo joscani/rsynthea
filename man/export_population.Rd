@@ -2,13 +2,13 @@
 % Please edit documentation in R/export.R
 \name{export_population}
 \alias{export_population}
-\title{Export a simulated population to tidy tibbles}
+\title{Export a simulated population to tidy tibbles (R engine)}
 \usage{
 export_population(patients, output_dir = NULL)
 }
 \arguments{
 \item{patients}{List of \code{Person} objects, as returned by
-\code{\link[=generate_population]{generate_population()}}.}
+\code{generate_population(use_cpp = FALSE)}.}
 
 \item{output_dir}{Character or \code{NULL}. If provided, each tibble is written
 to \verb{<output_dir>/<domain>.csv}. The directory is created if it does not
@@ -34,18 +34,25 @@ A named list of tibbles:
 }
 }
 \description{
-Converts a list of simulated \code{Person} objects into a named list of tibbles
-(one per clinical domain), optionally writing them as CSV files.
+Converts a list of \code{Person} objects (produced by the \strong{R engine}) into a
+named list of tibbles. Only needed when using \code{generate_population(..., use_cpp = FALSE)}; the default C++ engine already returns tibbles directly.
 }
 \examples{
 \dontrun{
-patients <- generate_population(5, seed = 1L,
-                                end_date = as.POSIXct("2020-01-01"))
-tbls <- export_population(patients)
+# R engine path (use_cpp = FALSE)
+persons <- generate_population(5, seed = 1L,
+                               end_date = as.POSIXct("2020-01-01"),
+                               use_cpp = FALSE)
+tbls <- export_population(persons)
 tbls$encounters
 
-# Write CSVs
-export_population(patients, output_dir = tempdir())
+# Write CSVs to disk
+export_population(persons, output_dir = tempdir())
+
+# With the default C++ engine, tibbles are returned directly — no need for
+# export_population():
+tbls <- generate_population(5, seed = 1L,
+                            end_date = as.POSIXct("2020-01-01"))
 }
 
 }

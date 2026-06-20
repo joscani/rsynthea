@@ -8,3 +8,6 @@
 ^inst/extdata/modules/\.gitkeep$
 ^inst/extdata/resources/\.gitkeep$
 ^tests/testthat/\.gitkeep$
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.positai$

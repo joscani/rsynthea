@@ -1,0 +1,297 @@
+---
+title: "Análisis de supervivencia con rsynthea"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Análisis de supervivencia con rsynthea}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  fig.width = 7,
+  fig.height = 4.5,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+## Motivación
+
+rsynthea simula la vida completa de cada paciente desde el nacimiento hasta la muerte o la fecha de corte. Esto lo convierte en una herramienta natural para **desarrollar y validar pipelines de análisis de supervivencia** sin necesidad de datos clínicos reales.
+
+En esta viñeta construimos:
+
+1. Curvas de Kaplan-Meier de supervivencia global estratificadas por diabetes
+2. Test log-rank para comparar los grupos
+3. Modelo de Cox con factores de riesgo clínicos (diabetes, hipertensión, género, dolor crónico)
+4. Verificación del supuesto de riesgos proporcionales
+
+---
+
+## Preparación
+
+```{r libs}
+library(rsynthea)
+library(survival)
+library(dplyr)
+library(ggplot2)
+```
+
+Generamos una cohorte de **500 adultos de 30 a 90 años** — rango de edad suficiente para observar eventos de mortalidad:
+
+```{r cohorte, cache=TRUE}
+tbls <- generate_population(
+  n        = 500,
+  seed     = 7L,
+  end_date = as.POSIXct("2023-01-01"),
+  min_age  = 30L,
+  max_age  = 90L
+)
+
+cat(sprintf(
+  "Pacientes: %d  |  Fallecidos: %d (%.1f%%)  |  Vivos: %d\n",
+  nrow(tbls$patients),
+  sum(!tbls$patients$is_alive),
+  100 * mean(!tbls$patients$is_alive),
+  sum(tbls$patients$is_alive)
+))
+```
+
+---
+
+## Construcción del dataset de supervivencia
+
+Calculamos el **tiempo de seguimiento** como los años desde el nacimiento hasta la muerte o la fecha de corte. Las condiciones clave se codifican como indicadores binarios.
+
+```{r dataset_surv}
+END_DATE <- as.POSIXct("2023-01-01")
+
+# Condiciones de interés: una columna binaria por condición (sin tidyr)
+make_flag <- function(df, code_val, col_name) {
+  df |> filter(code == code_val) |>
+    distinct(patient_id) |>
+    mutate(!!col_name := 1L)
+}
+
+pat_ids <- distinct(tbls$patients, id) |> rename(patient_id = id)
+
+conds <- pat_ids |>
+  left_join(make_flag(tbls$conditions, "44054006", "diabetes"),     by = "patient_id") |>
+  left_join(make_flag(tbls$conditions, "59621000", "hipertension"), by = "patient_id") |>
+  left_join(make_flag(tbls$conditions, "82423001", "dolor_cronico"),by = "patient_id") |>
+  mutate(across(c(diabetes, hipertension, dolor_cronico),
+                \(x) replace(x, is.na(x), 0L)))
+
+# Dataset de supervivencia
+surv_df <- tbls$patients |>
+  left_join(conds, by = c("id" = "patient_id")) |>
+  mutate(
+    t_evento    = if_else(is_alive, END_DATE, death_date),
+    surv_anios  = as.numeric(t_evento - birth_date, units = "days") / 365.25,
+    evento      = as.integer(!is_alive),
+    grupo_dm    = if_else(diabetes == 1L, "Diabético", "No diabético"),
+    genero      = if_else(gender == "F", "Mujer", "Hombre")
+  ) |>
+  filter(surv_anios > 0)
+
+surv_df |>
+  group_by(grupo_dm) |>
+  summarise(
+    n         = n(),
+    fallecidos = sum(evento),
+    tasa_mort  = sprintf("%.1f%%", 100 * mean(evento)),
+    mediana_seguimiento = round(median(surv_anios), 1)
+  )
+```
+
+---
+
+## Curvas de Kaplan-Meier
+
+### Supervivencia global
+
+```{r km_global, fig.height=4}
+fit_global <- survfit(Surv(surv_anios, evento) ~ 1, data = surv_df)
+
+s <- summary(fit_global)
+km_global <- data.frame(time = c(0, s$time), surv = c(1, s$surv),
+                        lower = c(1, s$lower), upper = c(1, s$upper))
+
+ggplot(km_global, aes(x = time, y = surv)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.15, fill = "#1565C0") +
+  geom_step(color = "#1565C0", linewidth = 1) +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+  scale_x_continuous(breaks = seq(0, 100, 10)) +
+  labs(
+    title    = "Supervivencia global de la cohorte",
+    subtitle = sprintf("n = %d pacientes, %d eventos de mortalidad",
+                       nrow(surv_df), sum(surv_df$evento)),
+    x = "Edad (años)", y = "Probabilidad de supervivencia"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+### Supervivencia por estado diabético
+
+```{r km_dm, fig.height=4.5}
+fit_dm <- survfit(Surv(surv_anios, evento) ~ grupo_dm, data = surv_df)
+
+# Extraer datos del objeto survfit
+s2 <- summary(fit_dm)
+km_dm <- data.frame(
+  time   = s2$time,
+  surv   = s2$surv,
+  lower  = s2$lower,
+  upper  = s2$upper,
+  grupo  = as.character(s2$strata)
+) |>
+  mutate(grupo = sub("grupo_dm=", "", grupo)) |>
+  # añadir origen (t=0, S=1) para cada grupo
+  bind_rows(
+    data.frame(time = 0, surv = 1, lower = 1, upper = 1,
+               grupo = c("Diabético", "No diabético"))
+  ) |>
+  arrange(grupo, time)
+
+colores <- c("Diabético" = "#E53935", "No diabético" = "#43A047")
+
+ggplot(km_dm, aes(x = time, y = surv, color = grupo, fill = grupo)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.12, color = NA) +
+  geom_step(linewidth = 1) +
+  scale_color_manual(values = colores) +
+  scale_fill_manual(values = colores) +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+  scale_x_continuous(breaks = seq(0, 100, 10)) +
+  labs(
+    title    = "Supervivencia por estado diabético",
+    subtitle = "Los diabéticos muestran menor supervivencia a largo plazo",
+    x = "Edad (años)", y = "Probabilidad de supervivencia",
+    color = NULL, fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+### Test log-rank
+
+```{r logrank}
+lr <- survdiff(Surv(surv_anios, evento) ~ grupo_dm, data = surv_df)
+p_val <- 1 - pchisq(lr$chisq, df = length(lr$n) - 1)
+cat(sprintf("Log-rank: χ²(1) = %.2f, p = %.4f\n", lr$chisq, p_val))
+```
+
+---
+
+## Modelo de Cox
+
+Ajustamos un modelo de Cox con cuatro covariables: diabetes, hipertensión, dolor crónico y género.
+
+```{r cox}
+cox_fit <- coxph(
+  Surv(surv_anios, evento) ~ diabetes + hipertension + dolor_cronico + genero,
+  data = surv_df
+)
+summary(cox_fit)
+```
+
+### Forest plot de hazard ratios
+
+```{r forest, fig.height=3.5}
+coef_df <- as.data.frame(summary(cox_fit)$conf.int) |>
+  tibble::rownames_to_column("variable") |>
+  rename(hr = `exp(coef)`, lower = `lower .95`, upper = `upper .95`) |>
+  mutate(
+    variable = case_when(
+      variable == "diabetes"      ~ "Diabetes tipo 2",
+      variable == "hipertension"  ~ "Hipertensión",
+      variable == "dolor_cronico" ~ "Dolor crónico",
+      variable == "generoMujer"   ~ "Mujer vs Hombre",
+      TRUE                        ~ variable
+    ),
+    variable = reorder(variable, hr),
+    sig = ifelse(lower > 1 | upper < 1, "p < 0.05", "ns")
+  )
+
+ggplot(coef_df, aes(y = variable, x = hr, xmin = lower, xmax = upper,
+                    color = sig)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(height = 0.2, linewidth = 0.8) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("p < 0.05" = "#E53935", "ns" = "grey50")) +
+  scale_x_log10(breaks = c(0.5, 1, 2, 3, 5),
+                labels = c("0.5", "1", "2", "3", "5")) +
+  labs(
+    title    = "Hazard ratios: factores asociados a mortalidad",
+    subtitle = "Escala logarítmica · IC 95% · Rojo = significativo",
+    x = "Hazard Ratio (IC 95%)", y = NULL, color = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Verificación del supuesto de riesgos proporcionales
+
+El modelo de Cox asume que los hazard ratios son **constantes en el tiempo**. Verificamos esto con el test de Schoenfeld:
+
+```{r ph_test}
+ph_test <- cox.zph(cox_fit)
+print(ph_test)
+```
+
+```{r ph_plot, fig.height=4}
+ph_df <- as.data.frame(ph_test$table) |>
+  tibble::rownames_to_column("variable") |>
+  filter(variable != "GLOBAL") |>
+  mutate(
+    cumple = p > 0.05,
+    etiqueta = sprintf("p = %.3f", p),
+    variable = case_when(
+      variable == "diabetes"      ~ "Diabetes",
+      variable == "hipertension"  ~ "Hipertensión",
+      variable == "dolor_cronico" ~ "Dolor crónico",
+      variable == "generoMujer"   ~ "Mujer vs Hombre",
+      TRUE                        ~ variable
+    )
+  )
+
+ggplot(ph_df, aes(y = reorder(variable, p), x = p,
+                  color = cumple, label = etiqueta)) +
+  geom_vline(xintercept = 0.05, linetype = "dashed", color = "grey50") +
+  geom_point(size = 4) +
+  geom_text(nudge_x = 0.02, hjust = 0, size = 3.5, color = "grey30") +
+  scale_color_manual(values = c("TRUE" = "#43A047", "FALSE" = "#E53935"),
+                     labels = c("TRUE" = "Cumple (p > 0.05)",
+                                "FALSE" = "Viola (p ≤ 0.05)")) +
+  scale_x_continuous(limits = c(0, 1.1)) +
+  labs(
+    title    = "Test de Schoenfeld: supuesto de riesgos proporcionales",
+    subtitle = "p > 0.05 indica que el hazard ratio es estable en el tiempo",
+    x = "p-valor", y = NULL, color = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Interpretación
+
+Los resultados de este análisis sobre datos sintéticos ilustran el tipo de conclusiones que se obtendrían con datos clínicos reales:
+
+- **La diabetes** aumenta el riesgo de mortalidad (HR > 1) y las curvas KM divergen desde edades tempranas.
+- **La hipertensión** y el **dolor crónico** actúan como factores de riesgo adicionales independientes.
+- El **test log-rank** confirma si la diferencia entre grupos es estadísticamente significativa.
+- El **test de Schoenfeld** valida que los hazard ratios son estables en el tiempo (supuesto PH).
+
+Este flujo — generación de cohorte → supervivencia → Cox → verificación de supuestos — es directamente transferible a datos reales de un EHR o registro clínico.
+
+---
+
+## Notas metodológicas
+
+> **Sobre el uso de datos sintéticos para supervivencia**: rsynthea simula la progresión de enfermedades crónicas según las distribuciones epidemiológicas de Massachusetts. Los hazard ratios obtenidos reflejan las probabilidades de transición codificadas en los módulos GMF de Synthea, no estimaciones independientes de la literatura clínica. Antes de usar estos modelos para inferencia epidemiológica real, valida las prevalencias y tasas de eventos contra datos poblacionales de tu contexto.

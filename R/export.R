@@ -1,12 +1,13 @@
 # R/export.R
 
-#' Export a simulated population to tidy tibbles
+#' Export a simulated population to tidy tibbles (R engine)
 #'
-#' Converts a list of simulated `Person` objects into a named list of tibbles
-#' (one per clinical domain), optionally writing them as CSV files.
+#' Converts a list of `Person` objects (produced by the **R engine**) into a
+#' named list of tibbles. Only needed when using `generate_population(...,
+#' use_cpp = FALSE)`; the default C++ engine already returns tibbles directly.
 #'
 #' @param patients List of `Person` objects, as returned by
-#'   [generate_population()].
+#'   `generate_population(use_cpp = FALSE)`.
 #' @param output_dir Character or `NULL`. If provided, each tibble is written
 #'   to `<output_dir>/<domain>.csv`. The directory is created if it does not
 #'   exist.
@@ -31,13 +32,20 @@
 #'
 #' @examples
 #' \dontrun{
-#' patients <- generate_population(5, seed = 1L,
-#'                                 end_date = as.POSIXct("2020-01-01"))
-#' tbls <- export_population(patients)
+#' # R engine path (use_cpp = FALSE)
+#' persons <- generate_population(5, seed = 1L,
+#'                                end_date = as.POSIXct("2020-01-01"),
+#'                                use_cpp = FALSE)
+#' tbls <- export_population(persons)
 #' tbls$encounters
 #'
-#' # Write CSVs
-#' export_population(patients, output_dir = tempdir())
+#' # Write CSVs to disk
+#' export_population(persons, output_dir = tempdir())
+#'
+#' # With the default C++ engine, tibbles are returned directly — no need for
+#' # export_population():
+#' tbls <- generate_population(5, seed = 1L,
+#'                             end_date = as.POSIXct("2020-01-01"))
 #' }
 #'
 #' @seealso [generate_population()]
@@ -131,12 +139,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .encounters_tbl <- function(patients) {
   recs <- .all_recs(patients, "encounters")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
-      encounter_class = character(), code = character(), code_system = character(),
-      description = character()))
-  }
   tibble::tibble(
     id              = .extract_chr(recs, "id"),
     patient_id      = .pat_ids(patients, "encounters"),
@@ -151,11 +153,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .conditions_tbl <- function(patients) {
   recs <- .all_recs(patients, "conditions")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      onset_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
-      is_active = logical(), code = character(), code_system = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "conditions"),
@@ -170,11 +167,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .medications_tbl <- function(patients) {
   recs <- .all_recs(patients, "medications")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      start_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
-      is_active = logical(), code = character(), code_system = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "medications"),
@@ -189,11 +181,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .procedures_tbl <- function(patients) {
   recs <- .all_recs(patients, "procedures")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), code = character(),
-      code_system = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "procedures"),
@@ -206,11 +193,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .observations_tbl <- function(patients) {
   recs <- .all_recs(patients, "observations")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), value = character(), unit = character(),
-      category = character(), code = character(), code_system = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "observations"),
@@ -226,10 +208,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .immunizations_tbl <- function(patients) {
   recs <- .all_recs(patients, "immunizations")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), code = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "immunizations"),
@@ -241,11 +219,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .allergies_tbl <- function(patients) {
   recs <- .all_recs(patients, "allergies")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      onset_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
-      is_active = logical(), code = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "allergies"),
@@ -259,11 +232,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .careplans_tbl <- function(patients) {
   recs <- .all_recs(patients, "careplans")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      start_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
-      is_active = logical(), code = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "careplans"),
@@ -277,11 +245,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .imaging_tbl <- function(patients) {
   recs <- .all_recs(patients, "imaging")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), code = character(),
-      code_system = character(), description = character(), series_count = integer()))
-  }
   tibble::tibble(
     id           = .extract_chr(recs, "id"),
     patient_id   = .pat_ids(patients, "imaging"),
@@ -295,11 +258,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .devices_tbl <- function(patients) {
   recs <- .all_recs(patients, "devices")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      start_time = .POSIXct(numeric(), tz = "UTC"), end_time = .POSIXct(numeric(), tz = "UTC"),
-      is_active = logical(), code = character(), code_system = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "devices"),
@@ -314,11 +272,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .reports_tbl <- function(patients) {
   recs <- .all_recs(patients, "reports")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), code = character(),
-      code_system = character(), description = character(), observation_count = integer()))
-  }
   tibble::tibble(
     id                = .extract_chr(recs, "id"),
     patient_id        = .pat_ids(patients, "reports"),
@@ -332,20 +285,10 @@ export_population <- function(patients, output_dir = NULL) {
 
 .report_observations_tbl <- function(patients) {
   all_reports <- .all_recs(patients, "reports")
-  if (length(all_reports) == 0L) {
-    return(tibble::tibble(id = character(), report_id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), value = character(), unit = character(),
-      code = character(), code_system = character(), description = character()))
-  }
   pat_id_per_report <- .pat_ids(patients, "reports")
   obs_lists <- lapply(all_reports, function(r) r$observations %||% list())
   obs_counts <- lengths(obs_lists)
   all_obs <- unlist(obs_lists, recursive = FALSE)
-  if (length(all_obs) == 0L) {
-    return(tibble::tibble(id = character(), report_id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), value = character(), unit = character(),
-      code = character(), code_system = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(all_obs, "id"),
     report_id   = rep(.extract_chr(all_reports, "id"), obs_counts),
@@ -361,11 +304,6 @@ export_population <- function(patients, output_dir = NULL) {
 
 .supplies_tbl <- function(patients) {
   recs <- .all_recs(patients, "supplies")
-  if (length(recs) == 0L) {
-    return(tibble::tibble(id = character(), patient_id = character(),
-      time = .POSIXct(numeric(), tz = "UTC"), quantity = character(),
-      code = character(), code_system = character(), description = character()))
-  }
   tibble::tibble(
     id          = .extract_chr(recs, "id"),
     patient_id  = .pat_ids(patients, "supplies"),

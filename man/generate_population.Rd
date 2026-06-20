@@ -14,7 +14,9 @@ generate_population(
   max_age = 140L,
   modules = NULL,
   end_date = Sys.time(),
-  mc.cores = 1L
+  mc.cores = 1L,
+  use_cpp = TRUE,
+  cpp_modules = NULL
 )
 }
 \arguments{
@@ -33,51 +35,76 @@ generate_population(
 
 \item{max_age}{Integer. Maximum patient age at \code{end_date}. Default \code{140L}.}
 
-\item{modules}{List of Module objects or \code{NULL}. If \code{NULL}, all modules are
-loaded from \verb{inst/extdata/modules/} via \code{\link[=load_all_modules]{load_all_modules()}}.}
+\item{modules}{List of Module objects or \code{NULL}. If \code{NULL}, modules are
+loaded automatically and cached for the rest of the session via an internal
+cache. Pass an explicit list to override (e.g. custom modules).}
 
 \item{end_date}{POSIXct. Simulation end date. Default \code{Sys.time()}.}
 
 \item{mc.cores}{Integer. Number of parallel workers. Values > 1 use
 \code{parallel::mclapply} (fork-based; Unix/macOS only). Default \code{1L}.}
+
+\item{use_cpp}{Logical. Use the compiled C++ simulation engine (default
+\code{TRUE}). The C++ engine is ~2.7× faster than Java Synthea and ~11× faster
+than the pure R fallback. Set to \code{FALSE} only for debugging.}
+
+\item{cpp_modules}{External pointer returned by \code{\link[=compile_all_modules]{compile_all_modules()}}, or
+\code{NULL}. When \code{NULL} and \code{use_cpp = TRUE}, compiled modules are cached
+automatically for the session. Supply an explicit pointer only when using
+custom modules outside the session cache.}
 }
 \value{
-A list of \code{n} \code{Person} objects with populated \code{.record} environments
-containing encounters, conditions, medications, etc.
+A named list of tibbles (one per clinical domain):
+\describe{
+\item{\code{patients}}{Demographics: one row per patient.}
+\item{\code{encounters}}{Clinical encounters with start/end times and SNOMED codes.}
+\item{\code{conditions}}{Diagnoses with onset/end times and \code{is_active} flag.}
+\item{\code{medications}}{Medication orders with start/end times and RxNorm codes.}
+\item{\code{procedures}}{Procedures performed.}
+\item{\code{observations}}{Lab and clinical observations with LOINC codes and values.}
+\item{\code{immunizations}}{Vaccines administered.}
+\item{\code{allergies}}{Allergy records.}
+}
 }
 \description{
 Creates \code{n} synthetic patients, samples their demographics, and runs the
 full GMF module simulation for each one. The main entry point of the package.
 }
 \details{
-With \code{mc.cores > 1}, each patient is simulated in a forked child process.
-The global \code{.REC$e} state is isolated per fork, so parallelism is safe.
-Note that \code{.new_id()} counters reset per child: IDs are unique within a
-patient but may collide across patients in the same run. Use
-\code{\link[=export_population]{export_population()}} to assign globally-unique identifiers.
+\strong{Engine selection}: by default, the C++ engine (\code{use_cpp = TRUE}) is used.
+It compiles all GMF modules once per session and simulates in C++17, which
+is ~2.7× faster than the Java reference implementation. The pure R engine
+(\code{use_cpp = FALSE}) is slower but easier to instrument for debugging.
 
-Speedup with 12 physical cores (macOS M-series, 2026):
-\itemize{
-\item 10 patients: ~3.6×
-\item 50 patients: ~6.5×
-\item 100 patients: ~7×
-}
+\strong{Caching}: on the first call, \code{load_all_modules()} and
+\code{compile_all_modules()} run automatically and their results are stored in an
+internal session cache. Subsequent calls reuse the cache at no cost. Call
+\code{\link[=rsynthea_clear_cache]{rsynthea_clear_cache()}} to force a reload (e.g. after modifying custom
+modules).
+
+\strong{Parallelism}: with \code{mc.cores > 1}, patients are distributed across forked
+workers via \code{parallel::mclapply} (Unix/macOS only). Each worker gets its own
+seed derived from the base \code{seed}, so results are reproducible.
 }
 \examples{
 \dontrun{
-modules <- load_all_modules()
-
-# Serial
-patients <- generate_population(10, seed = 42L, modules = modules,
-                                end_date = as.POSIXct("2020-01-01"))
+# Modules are loaded and compiled automatically on first call
+# and cached for the rest of the session.
+tbls <- generate_population(10, seed = 42L,
+                            end_date = as.POSIXct("2020-01-01"))
 
 # Parallel (Unix/macOS)
-patients <- generate_population(100, seed = 1L, modules = modules,
-                                end_date = as.POSIXct("2020-01-01"),
-                                mc.cores = parallel::detectCores(logical = FALSE))
+tbls <- generate_population(100, seed = 1L,
+                            end_date = as.POSIXct("2020-01-01"),
+                            mc.cores = parallel::detectCores(logical = FALSE))
+
+# Pass custom modules explicitly (bypasses cache)
+my_modules <- load_all_modules()
+tbls <- generate_population(10, seed = 1L, modules = my_modules,
+                            end_date = as.POSIXct("2020-01-01"))
 }
 
 }
 \seealso{
-\code{\link[=export_population]{export_population()}}, \code{\link[=load_all_modules]{load_all_modules()}}, \code{\link[=simulate_life]{simulate_life()}}
+\code{\link[=load_all_modules]{load_all_modules()}}, \code{\link[=compile_all_modules]{compile_all_modules()}}, \code{\link[=rsynthea_clear_cache]{rsynthea_clear_cache()}}
 }

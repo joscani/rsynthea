@@ -278,9 +278,8 @@ Rcpp::List generate_and_export_cpp(
     // ── Observations ──────────────────────────────────────────────────────────
     Rcpp::CharacterVector obs_id(n_obs), obs_pat(n_obs), obs_code(n_obs),
                           obs_sys(n_obs), obs_desc(n_obs), obs_unit(n_obs),
-                          obs_cat(n_obs);
+                          obs_cat(n_obs), obs_value(n_obs);
     Rcpp::NumericVector   obs_time(n_obs);
-    Rcpp::List            obs_value(n_obs);  // heterogeneous
     {
         size_t k = 0;
         for (int i = 0; i < n; ++i) {
@@ -294,7 +293,16 @@ Rcpp::List generate_and_export_cpp(
                 obs_desc[k]  = o.codes.empty() ? "" : o.codes[0].display;
                 obs_unit[k]  = o.unit;
                 obs_cat[k]   = o.category;
-                obs_value[k] = attrval_to_sexp(o.value);
+                // Stringify value: numeric → decimal string, bool → "true"/"false", else NA
+                if (attr_is_double(o.value)) {
+                    obs_value[k] = std::to_string(attr_double(o.value));
+                } else if (attr_is_bool(o.value)) {
+                    obs_value[k] = attr_bool(o.value) ? "true" : "false";
+                } else if (attr_is_string(o.value)) {
+                    obs_value[k] = attr_string(o.value);
+                } else {
+                    obs_value[k] = NA_STRING;
+                }
                 ++k;
             }
         }
@@ -307,6 +315,7 @@ Rcpp::List generate_and_export_cpp(
         Rcpp::Named("code")        = obs_code,
         Rcpp::Named("code_system") = obs_sys,
         Rcpp::Named("description") = obs_desc,
+        Rcpp::Named("value")       = obs_value,
         Rcpp::Named("unit")        = obs_unit,
         Rcpp::Named("category")    = obs_cat,
         Rcpp::Named("stringsAsFactors") = false

@@ -13,44 +13,67 @@
 #' @param gender Character or `NULL`. Force gender (`"M"` or `"F"`).
 #' @param min_age Integer. Minimum patient age at `end_date`. Default `0L`.
 #' @param max_age Integer. Maximum patient age at `end_date`. Default `140L`.
-#' @param modules List of Module objects or `NULL`. If `NULL`, all modules are
-#'   loaded from `inst/extdata/modules/` via [load_all_modules()].
+#' @param modules List of Module objects or `NULL`. If `NULL`, modules are
+#'   loaded automatically and cached for the rest of the session via an internal
+#'   cache. Pass an explicit list to override (e.g. custom modules).
 #' @param end_date POSIXct. Simulation end date. Default `Sys.time()`.
 #' @param mc.cores Integer. Number of parallel workers. Values > 1 use
 #'   `parallel::mclapply` (fork-based; Unix/macOS only). Default `1L`.
+#' @param use_cpp Logical. Use the compiled C++ simulation engine (default
+#'   `TRUE`). The C++ engine is ~2.7× faster than Java Synthea and ~11× faster
+#'   than the pure R fallback. Set to `FALSE` only for debugging.
+#' @param cpp_modules External pointer returned by [compile_all_modules()], or
+#'   `NULL`. When `NULL` and `use_cpp = TRUE`, compiled modules are cached
+#'   automatically for the session. Supply an explicit pointer only when using
+#'   custom modules outside the session cache.
 #'
-#' @return A list of `n` `Person` objects with populated `.record` environments
-#'   containing encounters, conditions, medications, etc.
+#' @return A named list of tibbles (one per clinical domain):
+#' \describe{
+#'   \item{`patients`}{Demographics: one row per patient.}
+#'   \item{`encounters`}{Clinical encounters with start/end times and SNOMED codes.}
+#'   \item{`conditions`}{Diagnoses with onset/end times and `is_active` flag.}
+#'   \item{`medications`}{Medication orders with start/end times and RxNorm codes.}
+#'   \item{`procedures`}{Procedures performed.}
+#'   \item{`observations`}{Lab and clinical observations with LOINC codes and values.}
+#'   \item{`immunizations`}{Vaccines administered.}
+#'   \item{`allergies`}{Allergy records.}
+#' }
 #'
 #' @details
-#' With `mc.cores > 1`, each patient is simulated in a forked child process.
-#' The global `.REC$e` state is isolated per fork, so parallelism is safe.
-#' Note that `.new_id()` counters reset per child: IDs are unique within a
-#' patient but may collide across patients in the same run. Use
-#' [export_population()] to assign globally-unique identifiers.
+#' **Engine selection**: by default, the C++ engine (`use_cpp = TRUE`) is used.
+#' It compiles all GMF modules once per session and simulates in C++17, which
+#' is ~2.7× faster than the Java reference implementation. The pure R engine
+#' (`use_cpp = FALSE`) is slower but easier to instrument for debugging.
 #'
-#' Speedup with 12 physical cores (macOS M-series, 2026):
-#' \itemize{
-#'   \item 10 patients: ~3.6×
-#'   \item 50 patients: ~6.5×
-#'   \item 100 patients: ~7×
-#' }
+#' **Caching**: on the first call, `load_all_modules()` and
+#' `compile_all_modules()` run automatically and their results are stored in an
+#' internal session cache. Subsequent calls reuse the cache at no cost. Call
+#' [rsynthea_clear_cache()] to force a reload (e.g. after modifying custom
+#' modules).
+#'
+#' **Parallelism**: with `mc.cores > 1`, patients are distributed across forked
+#' workers via `parallel::mclapply` (Unix/macOS only). Each worker gets its own
+#' seed derived from the base `seed`, so results are reproducible.
 #'
 #' @examples
 #' \dontrun{
-#' modules <- load_all_modules()
-#'
-#' # Serial
-#' patients <- generate_population(10, seed = 42L, modules = modules,
-#'                                 end_date = as.POSIXct("2020-01-01"))
+#' # Modules are loaded and compiled automatically on first call
+#' # and cached for the rest of the session.
+#' tbls <- generate_population(10, seed = 42L,
+#'                             end_date = as.POSIXct("2020-01-01"))
 #'
 #' # Parallel (Unix/macOS)
-#' patients <- generate_population(100, seed = 1L, modules = modules,
-#'                                 end_date = as.POSIXct("2020-01-01"),
-#'                                 mc.cores = parallel::detectCores(logical = FALSE))
+#' tbls <- generate_population(100, seed = 1L,
+#'                             end_date = as.POSIXct("2020-01-01"),
+#'                             mc.cores = parallel::detectCores(logical = FALSE))
+#'
+#' # Pass custom modules explicitly (bypasses cache)
+#' my_modules <- load_all_modules()
+#' tbls <- generate_population(10, seed = 1L, modules = my_modules,
+#'                             end_date = as.POSIXct("2020-01-01"))
 #' }
 #'
-#' @seealso [export_population()], [load_all_modules()], [simulate_life()]
+#' @seealso [load_all_modules()], [compile_all_modules()], [rsynthea_clear_cache()]
 #' @export
 generate_population <- function(
   n           = 1L,
@@ -63,20 +86,27 @@ generate_population <- function(
   modules     = NULL,
   end_date    = Sys.time(),
   mc.cores    = 1L,
-  use_cpp     = FALSE,
+  use_cpp     = TRUE,
   cpp_modules = NULL
 ) {
   .validate_generate_population_args(n, seed, gender, min_age, max_age,
                                      modules, end_date, mc.cores)
 
-  if (is.null(modules)) {
-    modules <- load_all_modules()
+  # Use cached modules unless the caller supplied their own
+  user_supplied_modules <- !is.null(modules)
+  if (!user_supplied_modules) {
+    modules <- .get_modules()
   }
 
   # ── C++ fast path ──────────────────────────────────────────────────────────
   if (use_cpp) {
     if (is.null(cpp_modules)) {
-      cpp_modules <- compile_all_modules(modules)
+      # Use cached compiled modules; recompile only if user supplied custom modules
+      cpp_modules <- if (user_supplied_modules) {
+        compile_all_modules(modules)
+      } else {
+        .get_cpp_modules(modules)
+      }
     }
     return(.generate_population_cpp(
       n           = n,

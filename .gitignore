@@ -35,3 +35,16 @@ logs/
 # Compiled R package binaries
 src/*.o
 src/*.so
+
+# knitr cache (session-specific)
+vignettes/*_cache/
+vignettes/*_files/
+
+# Posit IDE local
+.posit/
+rsynthea.Rproj
+.Renviron
+
+# Scratch
+hola.R
+/doc/

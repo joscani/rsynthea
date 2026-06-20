@@ -16,15 +16,16 @@ TIMESTEP_SECS <- 7L * 86400L  # 1 week in seconds
 #'   conditions, medications, etc.) are stored in `person@@.record`.
 #'
 #' @details
-#' **Hot-path design**: `.REC$e` is set to `person@@.record` once per call so
-#' that state handlers access clinical data without S7 dispatch. `rec$.t_num`
-#' caches `as.numeric(current_time)` per timestep. Terminal modules are
-#' skipped via a pre-check before calling `advance_module()`.
+#' Most users should call [generate_population()] instead, which handles module
+#' loading, caching, and export automatically. `simulate_life()` is the R
+#' engine's inner loop and is exported for advanced use cases such as custom
+#' simulation harnesses, debugging, or profiling individual patients.
 #'
-#' The weekly timestep (`TIMESTEP_SECS = 7 * 86400`) is the same as
-#' py-synthea's default.
+#' The weekly timestep (`TIMESTEP_SECS = 7 * 86400`) matches py-synthea's
+#' default. Clinical events are written to `person@@.record` in-place via the
+#' `.REC` thread-local cache to avoid repeated S7 dispatch on the hot path.
 #'
-#' @seealso [generate_population()], `advance_module()`
+#' @seealso [generate_population()], [load_all_modules()]
 #' @export
 simulate_life <- function(person, modules, end_date = Sys.time()) {
   birth <- person@attributes[["birth_date"]] %||% end_date
@@ -36,14 +37,23 @@ simulate_life <- function(person, modules, end_date = Sys.time()) {
   rec <- person@.record
   .REC$e <- rec
   rec$.is_alive <- person@is_alive
+  # ponytail: attrs cache avoids S7 @-dispatch in .cond_attribute (4.77% self); writers keep in sync
+  rec$.attrs <- person@attributes
+
+  # Pre-extract per-module hot fields so the inner loop uses [[i]] on vectors
+  # instead of $-search on each Module list (saves ~8.8M $ calls + isTRUE per patient).
+  mod_list <- unname(modules)
+  n_mods   <- length(mod_list)
+  is_sub   <- vapply(mod_list, `[[`, logical(1L),   "is_submodule")
+  st_keys  <- vapply(mod_list, `[[`, character(1L), "state_key")
 
   while (t_cur <= t_end && rec$.is_alive) {
     current_time <- .POSIXct(t_cur)
     rec$.t_num   <- t_cur
-    for (module in modules) {
-      if (isTRUE(module$is_submodule)) next
-      if (identical(rec[[module$state_key]], "__terminal__")) next
-      person <- advance_module(person, module, current_time, modules)
+    for (i in seq_len(n_mods)) {
+      if (is_sub[[i]]) next
+      if (identical(rec[[st_keys[[i]]]], "__terminal__")) next
+      person <- advance_module(person, mod_list[[i]], current_time, modules)
       if (!rec$.is_alive) break
     }
     t_cur <- t_cur + TIMESTEP_SECS

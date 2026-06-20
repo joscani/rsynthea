@@ -1,56 +1,53 @@
 # R/module.R
-# GMFState and Module are plain named lists. Fields ordered by descending access
-# frequency so R's linear-search [[]] scans fewer names in the hot path:
-#   type, transition, visited_key, call_key  (~1M accesses each per patient)
-#   name, codes, definition                  (~100-200K accesses each)
-#   ...rest
+# GMFState is a hashed environment — O(1) field access regardless of order.
+# (Previously a named list with O(N) linear scan; ordering no longer matters.)
 
 GMFState <- function(name, type, definition, transition, module_name = "") {
   wk_prefix <- if (nzchar(module_name)) paste0(module_name, "/") else ""
-  list(
-    type             = type,
-    transition       = transition,
-    visited_key      = paste0("__visited__", name),
-    call_key         = paste0("__call_submodule__", name),
-    is_wellness      = isTRUE(definition[["wellness"]]),
-    wellness_key     = paste0("__wellness_time__", wk_prefix, name),
-    name             = name,
-    codes            = .parse_codes(.state_codes(definition)),
-    definition       = definition,
-    encounter_class  = definition[["encounter_class"]] %||% "ambulatory",
-    activities       = .parse_codes(definition[["activities"]]),
-    sub_codes        = lapply(definition[["observations"]] %||% list(),
-                              function(o) .parse_codes(o[["codes"]])),
-    delay_key        = paste0("__delay_until__", name),
-    cond_key         = paste0("__condition_env__", name),
-    med_key          = paste0("__medication_env__", name),
-    cp_key           = paste0("__careplan_env__", name),
-    allergy_key      = paste0("__allergy_env__", name),
-    device_key       = paste0("__device_ref__", name),
-    allergy_type     = definition[["allergy_type"]] %||% NULL,
-    category         = definition[["category"]] %||% NULL,
-    unit             = definition[["unit"]] %||% NULL,
-    series           = definition[["series"]] %||% list(),
-    vs_name          = definition[["vital_sign"]] %||% "",
-    sym_name         = definition[["symptom"]] %||% "",
-    sym_cause        = definition[["cause"]] %||% NULL,
-    submodule_name   = definition[["submodule"]] %||% "",
-    cond_end_key     = paste0("__condition_env__",
-                               definition[["condition_onset"]] %||% ""),
-    med_end_key      = paste0("__medication_env__",
-                               definition[["medication_order"]] %||% ""),
-    cp_end_key       = paste0("__careplan_env__",
-                               definition[["careplan"]] %||% ""),
-    alg_end_key      = paste0("__allergy_env__",
-                               definition[["allergy_onset"]] %||% ""),
-    device_end_key   = paste0("__device_ref__",
-                               definition[["device"]] %||% ""),
-    attr_name        = definition[["attribute"]] %||% NULL,
-    attr_value       = definition[["value"]],
-    counter_action   = definition[["action"]] %||% "increment",
-    counter_amount   = as.numeric(definition[["amount"]] %||% 1),
-    guard_allow      = definition[["allow"]]
-  )
+  e <- new.env(parent = emptyenv(), hash = TRUE)
+  e$type           <- type
+  e$transition     <- transition
+  e$visited_key    <- paste0("__visited__", name)
+  e$call_key       <- paste0("__call_submodule__", name)
+  e$delay_key      <- paste0("__delay_until__", name)
+  e$guard_allow    <- definition[["allow"]]
+  e$is_wellness    <- isTRUE(definition[["wellness"]])
+  e$wellness_key   <- paste0("__wellness_time__", wk_prefix, name)
+  e$name           <- name
+  e$codes          <- .parse_codes(.state_codes(definition))
+  e$definition     <- definition
+  e$encounter_class <- definition[["encounter_class"]] %||% "ambulatory"
+  e$activities     <- .parse_codes(definition[["activities"]])
+  e$sub_codes      <- lapply(definition[["observations"]] %||% list(),
+                             function(o) .parse_codes(o[["codes"]]))
+  e$cond_key       <- paste0("__condition_env__", name)
+  e$med_key        <- paste0("__medication_env__", name)
+  e$cp_key         <- paste0("__careplan_env__", name)
+  e$allergy_key    <- paste0("__allergy_env__", name)
+  e$device_key     <- paste0("__device_ref__", name)
+  e$allergy_type   <- definition[["allergy_type"]] %||% NULL
+  e$category       <- definition[["category"]] %||% NULL
+  e$unit           <- definition[["unit"]] %||% NULL
+  e$series         <- definition[["series"]] %||% list()
+  e$vs_name        <- definition[["vital_sign"]] %||% ""
+  e$sym_name       <- definition[["symptom"]] %||% ""
+  e$sym_cause      <- definition[["cause"]] %||% NULL
+  e$submodule_name <- definition[["submodule"]] %||% ""
+  e$cond_end_key   <- paste0("__condition_env__",
+                             definition[["condition_onset"]] %||% "")
+  e$med_end_key    <- paste0("__medication_env__",
+                             definition[["medication_order"]] %||% "")
+  e$cp_end_key     <- paste0("__careplan_env__",
+                             definition[["careplan"]] %||% "")
+  e$alg_end_key    <- paste0("__allergy_env__",
+                             definition[["allergy_onset"]] %||% "")
+  e$device_end_key <- paste0("__device_ref__",
+                             definition[["device"]] %||% "")
+  e$attr_name      <- definition[["attribute"]] %||% NULL
+  e$attr_value     <- definition[["value"]]
+  e$counter_action <- definition[["action"]] %||% "increment"
+  e$counter_amount <- as.numeric(definition[["amount"]] %||% 1)
+  e
 }
 
 .state_codes <- function(definition) {
@@ -103,27 +100,35 @@ load_module <- function(path) {
 #'   module JSON files. Defaults to `inst/extdata/modules/` inside the installed
 #'   package.
 #'
-#' @return A named list of `Module` objects, keyed by module name. The list is
-#'   passed directly to [generate_population()] or [simulate_life()].
+#' @return A named list of `Module` objects, keyed by module path relative to
+#'   `modules_dir` (e.g. `"diabetes"`, `"medications/metformin"`). Can be passed
+#'   to `generate_population(modules = ...)` to override the session cache, or to
+#'   [compile_all_modules()] to produce C++-ready structs.
 #'
 #' @details
-#' Each `Module` stores its states as a **hashed environment** (`list2env(...,
-#' hash = TRUE)`) so that `mod_states[[state_name]]` is O(1). The bundled
-#' module set has 242 modules with a median of 19 states each.
+#' You rarely need to call this directly. [generate_population()] loads and
+#' caches modules automatically on the first call. Use `load_all_modules()`
+#' explicitly only when working with **custom modules** in a non-default
+#' directory, or when you want to inspect or modify the module list before
+#' passing it to [compile_all_modules()].
 #'
-#' Loading takes ~1–2 s. Cache the result and reuse it across calls to
-#' [generate_population()] to avoid repeated I/O.
+#' The bundled module set has 243 modules. Each `Module` stores its states as a
+#' hashed environment so that state lookup is O(1).
 #'
 #' @examples
 #' \dontrun{
-#' modules <- load_all_modules()
-#' length(modules)  # 242
+#' # Inspect the bundled modules
+#' m <- load_all_modules()
+#' length(m)       # 243
+#' names(m)[1:5]
 #'
-#' patients <- generate_population(10, seed = 1L, modules = modules,
-#'                                 end_date = as.POSIXct("2020-01-01"))
+#' # Load custom modules from a local directory
+#' m_custom <- load_all_modules("path/to/my/modules")
+#' tbls <- generate_population(10, seed = 1L, modules = m_custom,
+#'                             end_date = as.POSIXct("2020-01-01"))
 #' }
 #'
-#' @seealso [generate_population()], [simulate_life()]
+#' @seealso [generate_population()], [compile_all_modules()]
 #' @export
 load_all_modules <- function(modules_dir = NULL) {
   if (is.null(modules_dir)) {

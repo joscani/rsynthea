@@ -23,14 +23,15 @@ Advances \code{person} through \code{modules} in weekly timesteps from their bir
 date to \code{end_date}, mutating the patient's \code{.record} environment in-place.
 }
 \details{
-\strong{Hot-path design}: \code{.REC$e} is set to \code{person@.record} once per call so
-that state handlers access clinical data without S7 dispatch. \code{rec$.t_num}
-caches \code{as.numeric(current_time)} per timestep. Terminal modules are
-skipped via a pre-check before calling \code{advance_module()}.
+Most users should call \code{\link[=generate_population]{generate_population()}} instead, which handles module
+loading, caching, and export automatically. \code{simulate_life()} is the R
+engine's inner loop and is exported for advanced use cases such as custom
+simulation harnesses, debugging, or profiling individual patients.
 
-The weekly timestep (\code{TIMESTEP_SECS = 7 * 86400}) is the same as
-py-synthea's default.
+The weekly timestep (\code{TIMESTEP_SECS = 7 * 86400}) matches py-synthea's
+default. Clinical events are written to \code{person@.record} in-place via the
+\code{.REC} thread-local cache to avoid repeated S7 dispatch on the hot path.
 }
 \seealso{
-\code{\link[=generate_population]{generate_population()}}, \code{advance_module()}
+\code{\link[=generate_population]{generate_population()}}, \code{\link[=load_all_modules]{load_all_modules()}}
 }

@@ -9,6 +9,42 @@ rcpp_hello <- function(x) {
     .Call(`_rsynthea_rcpp_hello`, x)
 }
 
+#' Compile GMF modules for the C++ simulation engine
+#'
+#' Converts a list of R `Module` objects (from [load_all_modules()]) into
+#' compiled C++ structs held in an external pointer. The compilation step
+#' takes ~0.2 s and needs to be done only once per session.
+#'
+#' @param modules_r Named list of `Module` objects as returned by
+#'   [load_all_modules()].
+#'
+#' @return An external pointer (`XPtr<vector<CppModule>>`) to the compiled
+#'   module set. Pass this to `generate_population(cpp_modules = ...)` to
+#'   reuse the compiled modules across multiple calls without recompiling.
+#'
+#' @details
+#' You rarely need to call this directly. [generate_population()] compiles and
+#' caches modules automatically on the first call. Use `compile_all_modules()`
+#' explicitly only when working with custom modules (loaded via
+#' [load_all_modules()]) that should bypass the session cache.
+#'
+#' The returned pointer is valid for the lifetime of the R session. It becomes
+#' invalid after [rsynthea_clear_cache()] is called or after reloading the
+#' package.
+#'
+#' @examples
+#' \dontrun{
+#' # Manual workflow (only needed for custom modules)
+#' m     <- load_all_modules("path/to/custom/modules")
+#' cpp_m <- compile_all_modules(m)
+#' tbls  <- generate_population(100, seed = 1L,
+#'                              end_date  = as.POSIXct("2020-01-01"),
+#'                              modules   = m,
+#'                              cpp_modules = cpp_m)
+#' }
+#'
+#' @seealso [load_all_modules()], [generate_population()], [rsynthea_clear_cache()]
+#' @export
 compile_all_modules <- function(modules_r) {
     .Call(`_rsynthea_compile_all_modules`, modules_r)
 }
