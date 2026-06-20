@@ -30,3 +30,8 @@ logs/
 
 # SO
 .DS_Store
+.positai
+
+# Compiled R package binaries
+src/*.o
+src/*.so

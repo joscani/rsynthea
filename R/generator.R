@@ -53,16 +53,18 @@
 #' @seealso [export_population()], [load_all_modules()], [simulate_life()]
 #' @export
 generate_population <- function(
-  n        = 1L,
-  seed     = NULL,
-  state    = NULL,
-  city     = NULL,
-  gender   = NULL,
-  min_age  = 0L,
-  max_age  = 140L,
-  modules  = NULL,
-  end_date = Sys.time(),
-  mc.cores = 1L
+  n           = 1L,
+  seed        = NULL,
+  state       = NULL,
+  city        = NULL,
+  gender      = NULL,
+  min_age     = 0L,
+  max_age     = 140L,
+  modules     = NULL,
+  end_date    = Sys.time(),
+  mc.cores    = 1L,
+  use_cpp     = FALSE,
+  cpp_modules = NULL
 ) {
   .validate_generate_population_args(n, seed, gender, min_age, max_age,
                                      modules, end_date, mc.cores)
@@ -71,6 +73,27 @@ generate_population <- function(
     modules <- load_all_modules()
   }
 
+  # ── C++ fast path ──────────────────────────────────────────────────────────
+  if (use_cpp) {
+    if (is.null(cpp_modules)) {
+      cpp_modules <- compile_all_modules(modules)
+    }
+    return(.generate_population_cpp(
+      n           = n,
+      seed        = seed,
+      state       = state,
+      city        = city,
+      gender      = gender,
+      min_age     = min_age,
+      max_age     = max_age,
+      modules     = modules,
+      end_date    = end_date,
+      mc.cores    = mc.cores,
+      cpp_modules = cpp_modules
+    ))
+  }
+
+  # ── R engine (original) ───────────────────────────────────────────────────
   person_seeds <- if (!is.null(seed)) seed + seq_len(n) - 1L
                   else sample.int(.Machine$integer.max, n)
 

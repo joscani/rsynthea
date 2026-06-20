@@ -14,7 +14,10 @@ Imports:
     tibble,
     dplyr,
     digest,
-    data.table
+    data.table,
+    Rcpp (>= 1.0.0)
+LinkingTo:
+    Rcpp
 Suggests:
     testthat (>= 3.0.0),
     devtools,
